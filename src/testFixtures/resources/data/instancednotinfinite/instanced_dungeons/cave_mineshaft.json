@@ -1,0 +1,36 @@
+{
+  "formatVersion": 1,
+  "structure": "minecraft:mineshaft",
+  "structureKind": "worldgen",
+  "weight": 5,
+  "biomes": [
+    "#minecraft:is_overworld"
+  ],
+  "height": {
+    "min": -48,
+    "max": 8
+  },
+  "environment": {
+    "type": "cave"
+  },
+  "terrain": {
+    "horizontalPadding": 48,
+    "verticalPadding": 32,
+    "maximumRadius": 256
+  },
+  "entry": {
+    "x": 0,
+    "y": 1,
+    "z": 0,
+    "yaw": 0,
+    "pitch": 0
+  },
+  "placement": {
+    "mode": "natural"
+  },
+  "decoration": {
+    "mode": "none"
+  },
+  "allowNaturalMobSpawning": true,
+  "reentry": "until_complete"
+}

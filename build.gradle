@@ -1,0 +1,201 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.143'
+    id 'idea'
+}
+
+tasks.named('wrapper', Wrapper).configure {
+    distributionType = Wrapper.DistributionType.BIN
+}
+
+version = mod_version
+group = mod_group_id
+
+base {
+    archivesName = mod_id
+}
+
+repositories {
+    maven {
+        name = 'BlameJared'
+        url = 'https://maven.blamejared.com'
+        content { includeGroup 'mezz.jei' }
+    }
+    maven {
+        name = 'SleepingTown'
+        url = 'https://repo.sleeping.town/'
+        content { includeGroup 'dev.emi' }
+    }
+    maven {
+        name = 'Modrinth'
+        url = 'https://api.modrinth.com/maven'
+        content { includeGroup 'maven.modrinth' }
+    }
+}
+
+configurations {
+    runtimeClasspath.extendsFrom localRuntime
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+sourceSets {
+    testFixtures
+}
+
+neoForge {
+    version = project.neo_version
+
+    parchment {
+        mappingsVersion = project.parchment_mappings_version
+        minecraftVersion = project.parchment_minecraft_version
+    }
+
+    runs {
+        configureEach {
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+
+        client {
+            client()
+            // Keep interactive presentation QA isolated from the dedicated-server save/logs.
+            gameDirectory = project.layout.projectDirectory.dir('run-client')
+            providers.gradleProperty('quickPlayServer').orNull?.with { address ->
+                programArgument '--quickPlayMultiplayer'
+                programArgument address
+            }
+        }
+
+        server {
+            server()
+            programArgument '--nogui'
+        }
+
+        recipeValidationServer {
+            server()
+            gameDirectory = project.layout.projectDirectory.dir('run-recipe-validation')
+            programArgument '--nogui'
+        }
+
+        gameTestServer {
+            type = 'gameTestServer'
+            gameDirectory = project.layout.projectDirectory.dir('run-gametest')
+            // The lifecycle test reuses Minecraft's one-block empty structure as its arena.
+            systemProperty 'neoforge.enabledGameTestNamespaces', "${project.mod_id},minecraft"
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet(sourceSets.main)
+            // Development runs keep representative dungeon datapacks without packaging them in the production JAR.
+            sourceSet(sourceSets.testFixtures)
+        }
+    }
+}
+
+dependencies {
+    compileOnly "mezz.jei:jei-1.21.1-common-api:${jei_version}"
+    compileOnly "mezz.jei:jei-1.21.1-neoforge-api:${jei_version}"
+    compileOnly "dev.emi:emi-neoforge:${emi_version}:api"
+    compileOnly "maven.modrinth:jade:${jade_version}"
+
+    if (providers.gradleProperty('recipeViewerRuntime').orNull == 'true' ||
+        providers.gradleProperty('jeiRuntime').orNull == 'true') {
+        localRuntime "mezz.jei:jei-1.21.1-neoforge:${jei_version}"
+    }
+    if (providers.gradleProperty('recipeViewerRuntime').orNull == 'true' ||
+        providers.gradleProperty('emiRuntime').orNull == 'true') {
+        localRuntime "dev.emi:emi-neoforge:${emi_version}"
+    }
+    if (providers.gradleProperty('jadeRuntime').orNull == 'true') {
+        localRuntime "maven.modrinth:jade:${jade_version}"
+    }
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation 'com.google.code.gson:gson:2.10.1'
+}
+
+tasks.named('test', Test).configure {
+    useJUnitPlatform()
+}
+
+tasks.named('jar', Jar).configure {
+    includeEmptyDirs = false
+    from('LICENSE') {
+        into('META-INF')
+        rename { 'LICENSE_instancednotinfinite' }
+    }
+}
+
+def releaseJarFile = tasks.named('jar', Jar).flatMap { it.archiveFile }
+def verifyReleaseJarContents = tasks.register('verifyReleaseJarContents') {
+    dependsOn tasks.named('jar')
+    inputs.file(releaseJarFile)
+    doLast {
+        def forbidden = []
+        def zip = new java.util.zip.ZipFile(releaseJarFile.get().asFile)
+        try {
+            zip.entries().each { entry ->
+                def name = entry.name
+                if (name ==~ /data\/[^\/]+\/instanced_dungeons\/.*/ ||
+                    name ==~ /data\/[^\/]+\/structures?\/.*/ ||
+                    name.endsWith('.nbt') ||
+                    name.startsWith('config/') ||
+                    name.startsWith('defaultconfigs/')) {
+                    forbidden.add(name)
+                }
+            }
+            if (!forbidden.empty) {
+                throw new GradleException("Release JAR contains test dungeon, structure, or pregenerated config files: ${forbidden}")
+            }
+            def logo = zip.getEntry('instancednotinfinite_logo.png')
+            def placeholder = zip.getEntry('assets/instancednotinfinite/textures/item/manifestation_catalyst.png')
+            if (logo == null || placeholder == null) {
+                throw new GradleException('Release JAR is missing the mod logo or catalyst placeholder artwork')
+            }
+            if (!java.util.Arrays.equals(zip.getInputStream(logo).bytes, zip.getInputStream(placeholder).bytes)) {
+                throw new GradleException('Packaged mod logo and catalyst placeholder artwork do not match byte-for-byte')
+            }
+        } finally {
+            zip.close()
+        }
+    }
+}
+
+tasks.named('check').configure {
+    dependsOn verifyReleaseJarContents
+}
+
+var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
+    var replaceProperties = [
+            minecraft_version      : minecraft_version,
+            minecraft_version_range: minecraft_version_range,
+            neo_version            : neo_version,
+            loader_version_range   : loader_version_range,
+            mod_id                 : mod_id,
+            mod_name               : mod_name,
+            mod_license            : mod_license,
+            mod_version            : mod_version,
+    ]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    from 'src/main/templates'
+    into 'build/generated/sources/modMetadata'
+}
+
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+    }
+}

@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "E": { "item": "minecraft:ender_pearl" },
+    "I": { "item": "minecraft:iron_ingot" }
+  },
+  "pattern": [
+    "III",
+    "IEI",
+    "III"
+  ],
+  "result": {
+    "id": "instancednotinfinite:manifestation_catalyst",
+    "count": 1,
+    "components": {
+      "instancednotinfinite:manifestation_target": {
+        "kind": "dungeon",
+        "id": "instancednotinfinite:cave_mineshaft"
+      },
+      "instancednotinfinite:instance_lifecycle": {
+        "open_seconds": 900,
+        "post_visit_seconds": 120,
+        "force_collapse_seconds": -1
+      }
+    }
+  }
+}

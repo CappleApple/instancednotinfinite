@@ -1,0 +1,6 @@
+{
+  "priority": 0,
+  "rarity_min": 0.0,
+  "rarity_max": 0.35,
+  "core": "#instancednotinfinite:portal_core/common"
+}

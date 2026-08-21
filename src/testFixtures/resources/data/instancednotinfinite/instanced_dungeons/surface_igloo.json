@@ -1,0 +1,40 @@
+{
+  "formatVersion": 1,
+  "structure": "minecraft:igloo/top",
+  "structureKind": "template",
+  "weight": 10,
+  "biomes": [
+    {
+      "id": "minecraft:snowy_plains",
+      "weight": 3
+    },
+    "minecraft:snowy_taiga"
+  ],
+  "height": {
+    "min": 64,
+    "max": 120
+  },
+  "environment": {
+    "type": "surface"
+  },
+  "terrain": {
+    "horizontalPadding": 40,
+    "verticalPadding": 28,
+    "maximumRadius": 128
+  },
+  "entry": {
+    "x": 0,
+    "y": 1,
+    "z": 0,
+    "yaw": 0,
+    "pitch": 0
+  },
+  "placement": {
+    "mode": "direct"
+  },
+  "decoration": {
+    "mode": "safe"
+  },
+  "allowNaturalMobSpawning": true,
+  "reentry": "while_active"
+}

@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.cappleapple.instancednotinfinite.mixin",
+  "plugin": "com.cappleapple.instancednotinfinite.mixin.DistantHorizonsMixinPlugin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": ["MinecraftServerAccessor", "compat.DistantHorizonsServerProxyMixin"],
+  "client": [
+    "compat.DistantHorizonsClientApiMixin",
+    "compat.DistantHorizonsClientProxyMixin",
+    "compat.DistantHorizonsFogMixin",
+    "compat.JadeRayTracingMixin"
+  ],
+  "injectors": { "defaultRequire": 1 }
+}
