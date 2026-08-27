@@ -8,6 +8,7 @@ import com.cappleapple.instancednotinfinite.manifestation.ResolvedPortalColors;
 import com.cappleapple.instancednotinfinite.snapshot.DungeonVisualSnapshot;
 import com.cappleapple.instancednotinfinite.snapshot.DungeonVisualSnapshotBuilder;
 import com.cappleapple.instancednotinfinite.snapshot.VisualBlock;
+import com.cappleapple.instancednotinfinite.structure.FloatingTerrainRemoval;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -26,7 +27,7 @@ public final class DungeonGenerationJob {
         "instancednotinfinite_generation", java.util.UUID::compareTo);
 
     private final DungeonInstanceManager manager;
-    private final PreparedDungeonCreation creation;
+    private PreparedDungeonCreation creation;
     private final List<ChunkPos> terrainChunks;
     private final List<ChunkPos> structureChunks;
     private final DungeonVisualSnapshotBuilder snapshot;
@@ -35,7 +36,11 @@ public final class DungeonGenerationJob {
     private int terrainIndex;
     private int heightmapIndex;
     private int structureIndex;
+    private final FloatingTerrainRemoval floatingRemoval;
+    private List<ChunkPos> cleanupChunks;
+    private int cleanupIndex;
     private boolean placementInitialized;
+    private boolean placementConfirmed;
     private boolean complete;
     private boolean ticketsReleased;
     private DungeonVisualSnapshot completedSnapshot;
@@ -59,6 +64,9 @@ public final class DungeonGenerationJob {
         this.snapshot = new DungeonVisualSnapshotBuilder(
             creation.instance(), creation.plan(), maximumSnapshotBlocks, presentationEnvelope);
         this.batchConsumer = batchConsumer;
+        this.floatingRemoval = creation.plan().floatingVoid()
+            ? new FloatingTerrainRemoval(creation.created().level(), creation.plan()) : null;
+        if (this.floatingRemoval != null) creation.created().generator().beginFloatingTerrain();
         this.structureChunks.forEach(chunk -> creation.created().level().getChunkSource().addRegionTicket(
             GENERATION_TICKET, chunk, 0, creation.instance().id().value()));
     }
@@ -96,13 +104,27 @@ public final class DungeonGenerationJob {
                     }
                     ChunkPos chunk = this.structureChunks.get(this.structureIndex++);
                     this.snapshot.beginStructureChunk(this.creation.created().level(), chunk);
-                    this.manager.structurePlacer().placeChunk(
-                        this.creation.created().level(), this.creation.created().generator(), this.creation.structure(),
-                        this.creation.instance().seed(), chunk.x, chunk.z);
+                    try (var capture = this.floatingRemoval == null ? null : this.floatingRemoval.capture()) {
+                        this.manager.structurePlacer().placeChunk(
+                            this.creation.created().level(), this.creation.created().generator(), this.creation.structure(),
+                            this.creation.instance().seed(), chunk.x, chunk.z);
+                    }
                     List<VisualBlock> added = this.snapshot.captureChunk(this.creation.created().level(), chunk, true);
                     if (!added.isEmpty()) this.batchConsumer.accept(added);
                     operations += ESTIMATED_OPERATIONS_PER_CHUNK;
+                } else if (!this.placementConfirmed) {
+                    this.creation = this.manager.confirmPlacedEnvironment(this.creation);
+                    this.placementConfirmed = true;
+                    if (this.floatingRemoval != null) {
+                        // Keep terrain for pieces that deferred ground projection until postProcess.
+                        List<ChunkPos> temporary = this.creation.created().generator().finishFloatingTerrain();
+                        this.cleanupChunks = this.creation.plan().floatingVoid() ? temporary : List.of();
+                    }
+                } else if (this.cleanupChunks != null && this.cleanupIndex < this.cleanupChunks.size()) {
+                    this.floatingRemoval.clearChunk(this.cleanupChunks.get(this.cleanupIndex++));
+                    operations += ESTIMATED_OPERATIONS_PER_CHUNK;
                 } else {
+                    if (this.floatingRemoval != null) this.floatingRemoval.release();
                     this.completedSnapshot = this.presentationSnapshot ? this.snapshot.build() : null;
                     this.portalColors = PortalAppearanceResolver.configured(
                         this.creation.instance().definition(), java.util.OptionalInt.of(this.creation.biomeFogColor()));
@@ -126,8 +148,9 @@ public final class DungeonGenerationJob {
     }
 
     public double progress() {
-        int total = this.terrainChunks.size() + this.structureChunks.size() * 2 + 1;
-        int done = this.terrainIndex + this.heightmapIndex + this.structureIndex + (this.complete ? 1 : 0);
+        int total = this.terrainChunks.size() + this.structureChunks.size() * 2 + 1
+            + (this.floatingRemoval == null ? 0 : this.cleanupChunks == null ? this.terrainChunks.size() : this.cleanupChunks.size());
+        int done = this.terrainIndex + this.heightmapIndex + this.structureIndex + this.cleanupIndex + (this.complete ? 1 : 0);
         return Math.min(1.0, done / (double)total);
     }
 

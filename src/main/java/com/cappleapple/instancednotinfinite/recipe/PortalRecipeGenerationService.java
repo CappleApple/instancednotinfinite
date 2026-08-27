@@ -1,6 +1,7 @@
 package com.cappleapple.instancednotinfinite.recipe;
 
 import com.cappleapple.instancednotinfinite.InstancedNotInfinite;
+import com.cappleapple.instancednotinfinite.config.ServerConfig;
 import com.cappleapple.instancednotinfinite.content.ManifestationTargetComponent;
 import com.cappleapple.instancednotinfinite.content.ModContent;
 import com.cappleapple.instancednotinfinite.definition.DungeonDefinition;
@@ -8,6 +9,7 @@ import com.cappleapple.instancednotinfinite.definition.DungeonDefinitionRegistry
 import com.cappleapple.instancednotinfinite.definition.DungeonOverride;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,11 +38,13 @@ public final class PortalRecipeGenerationService {
     private static final IngredientReference EMERGENCY_CATALYST = IngredientReference.parse("minecraft:ender_pearl");
 
     private final StructureRecipeAnalyzer analyzer = new StructureRecipeAnalyzer();
+    private final PortalRecipeCache cache = new PortalRecipeCache();
     private volatile List<PortalRecipeTier> tiers = List.of(emergencyTier());
     private volatile Map<ResourceLocation, StructureRecipeProfile> profiles = Map.of();
     private volatile Map<ResourceLocation, PortalRecipeReport> reports = Map.of();
     private Set<ResourceLocation> generatedIds = Set.of();
     private RecipeManager lastManager;
+    private volatile boolean lastCacheHit;
 
     private PortalRecipeGenerationService() {
     }
@@ -60,6 +64,26 @@ public final class PortalRecipeGenerationService {
         RecipeInferenceSettings settings = RecipeInferenceSettings.configured();
         RecipeIngredientExclusions ingredientExclusions = RecipeIngredientExclusions.configured(registries);
         RecipeTargetExclusions targetExclusions = RecipeTargetExclusions.configured(registries);
+        boolean forcedRegeneration = ServerConfig.INSTANCE.recipeCacheRegenerationRequested();
+        String cacheFingerprint = null;
+        Optional<PortalRecipeCache.Loaded> loadedCache = Optional.empty();
+        try {
+            cacheFingerprint = this.cache.inputFingerprint(registries, resources, templates, settings, ingredientExclusions);
+            if (forcedRegeneration) {
+                InstancedNotInfinite.LOGGER.info(
+                    "Generated recipe cache regeneration was requested; structure analysis will run once");
+            } else {
+                loadedCache = this.cache.load(cacheFingerprint, DungeonDefinitionRegistry.INSTANCE.ids(), resources);
+            }
+        } catch (RuntimeException exception) {
+            InstancedNotInfinite.LOGGER.warn(
+                "Could not prepare the generated recipe cache; structure analysis will run without caching: {}",
+                exception.getMessage());
+        }
+        Map<ResourceLocation, StructureRecipeProfile> cachedProfiles = loadedCache
+            .map(PortalRecipeCache.Loaded::profiles).orElse(Map.of());
+        boolean cacheHit = loadedCache.isPresent();
+        Set<ResourceLocation> resourceDependencies = new HashSet<>();
         boolean sameManager = manager == this.lastManager;
         Map<ResourceLocation, RecipeHolder<?>> base = new LinkedHashMap<>();
         manager.getRecipes().stream().sorted(java.util.Comparator.comparing(RecipeHolder::id)).forEach(recipe -> {
@@ -75,8 +99,14 @@ public final class PortalRecipeGenerationService {
             DungeonDefinition definition = DungeonDefinitionRegistry.INSTANCE.get(dungeonId).orElseThrow();
             DungeonOverride override = DungeonDefinitionRegistry.INSTANCE.configuredOverride(dungeonId).orElse(null);
             ResourceLocation sourceId = ResourceLocation.parse(definition.structure());
-            StructureRecipeProfile profile = analyzer.analyze(
-                dungeonId, sourceId, definition.environment(), registries, resources, templates, settings, ingredientExclusions);
+            StructureRecipeProfile resolvedProfile = cachedProfiles.get(dungeonId);
+            if (resolvedProfile == null) {
+                StructureRecipeAnalysis analysis = analyzer.analyzeWithDependencies(
+                    dungeonId, sourceId, definition.environment(), registries, resources, templates, settings, ingredientExclusions);
+                resolvedProfile = analysis.profile();
+                resourceDependencies.addAll(analysis.resourceDependencies());
+            }
+            StructureRecipeProfile profile = resolvedProfile;
             nextProfiles.put(dungeonId, profile);
             List<String> warnings = new ArrayList<>();
             ResourceLocation forcedTier = override == null || override.costTier() == null
@@ -208,9 +238,25 @@ public final class PortalRecipeGenerationService {
         this.lastManager = manager;
         this.profiles = Map.copyOf(nextProfiles);
         this.reports = Map.copyOf(nextReports);
+        this.lastCacheHit = cacheHit;
+        boolean cacheSaved = cacheHit;
+        if (!cacheHit && cacheFingerprint != null) {
+            cacheSaved = this.cache.save(
+                cacheFingerprint, nextProfiles, resourceDependencies, resources);
+        }
+        if (forcedRegeneration && cacheSaved) {
+            try {
+                ServerConfig.INSTANCE.clearRecipeCacheRegenerationRequest();
+                InstancedNotInfinite.LOGGER.info("Reset recipes.regenerateRecipeCache to false after successful regeneration");
+            } catch (RuntimeException exception) {
+                InstancedNotInfinite.LOGGER.warn(
+                    "Generated recipe cache was rebuilt, but its one-shot config flag could not be reset: {}",
+                    exception.getMessage());
+            }
+        }
         InstancedNotInfinite.LOGGER.info(
-            "Generated {} exact-dungeon and {} structure-pool portal recipes; {} targeted catalysts use explicit datapack recipes",
-            generated.size() - generatedPools, generatedPools, explicit.size());
+            "Installed {} exact-dungeon and {} structure-pool portal recipes using a recipe analysis cache {}; {} targeted catalysts use explicit datapack recipes",
+            generated.size() - generatedPools, generatedPools, cacheHit ? "hit" : "rebuild", explicit.size());
     }
 
     public Optional<StructureRecipeProfile> profile(ResourceLocation dungeonId) {
@@ -223,6 +269,10 @@ public final class PortalRecipeGenerationService {
 
     public int generatedCount() {
         return this.generatedIds.size();
+    }
+
+    public boolean lastCacheHit() {
+        return this.lastCacheHit;
     }
 
     private static Map<ManifestationTargetComponent, ResourceLocation> explicitRecipes(

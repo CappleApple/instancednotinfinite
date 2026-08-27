@@ -219,47 +219,28 @@ public final class DungeonCommands {
     }
 
     private static int createAndEnter(CommandContext<CommandSourceStack> context) {
-        ResourceLocation dungeon = ResourceLocationArgument.getId(context, "dungeon");
-        try {
-            ServerPlayer player = context.getSource().getPlayerOrException();
-            DungeonInstance instance = manager(context).createAndEnter(dungeon, player);
-            context.getSource().sendSuccess(() -> Component.literal("Entered dungeon instance " + instance.id()), true);
-            return Command.SINGLE_SUCCESS;
-        } catch (Exception exception) {
-            return fail(context, exception);
-        }
+        return queueEntry(context, java.util.Optional.of(ResourceLocationArgument.getId(context, "dungeon")), InstanceLifecycleOverrides.empty());
     }
 
     private static int createAndEnterWithLifecycle(CommandContext<CommandSourceStack> context) {
-        ResourceLocation dungeon = ResourceLocationArgument.getId(context, "dungeon");
-        try {
-            ServerPlayer player = context.getSource().getPlayerOrException();
-            DungeonInstance instance = manager(context).createAndEnter(dungeon, player, lifecycle(context));
-            context.getSource().sendSuccess(() -> Component.literal("Entered dungeon instance " + instance.id()), true);
-            return Command.SINGLE_SUCCESS;
-        } catch (Exception exception) {
-            return fail(context, exception);
-        }
+        return queueEntry(context, java.util.Optional.of(ResourceLocationArgument.getId(context, "dungeon")), lifecycle(context));
     }
 
     private static int createRandomAndEnter(CommandContext<CommandSourceStack> context) {
-        try {
-            ServerPlayer player = context.getSource().getPlayerOrException();
-            DungeonInstance instance = manager(context).createRandomAndEnter(player);
-            context.getSource().sendSuccess(() -> Component.literal(
-                "Selected " + instance.definition().id() + " and entered instance " + instance.id()), true);
-            return Command.SINGLE_SUCCESS;
-        } catch (Exception exception) {
-            return fail(context, exception);
-        }
+        return queueEntry(context, java.util.Optional.empty(), InstanceLifecycleOverrides.empty());
     }
 
     private static int createRandomAndEnterWithLifecycle(CommandContext<CommandSourceStack> context) {
+        return queueEntry(context, java.util.Optional.empty(), lifecycle(context));
+    }
+
+    private static int queueEntry(CommandContext<CommandSourceStack> context, java.util.Optional<ResourceLocation> dungeon,
+        InstanceLifecycleOverrides overrides) {
         try {
             ServerPlayer player = context.getSource().getPlayerOrException();
-            DungeonInstance instance = manager(context).createRandomAndEnter(player, lifecycle(context));
+            DungeonInstance instance = manager(context).queueEntry(player, dungeon, overrides);
             context.getSource().sendSuccess(() -> Component.literal(
-                "Selected " + instance.definition().id() + " and entered instance " + instance.id()), true);
+                "Generating " + instance.definition().id() + " as instance " + instance.id() + "; you will enter when it is ready."), false);
             return Command.SINGLE_SUCCESS;
         } catch (Exception exception) {
             return fail(context, exception);

@@ -3,6 +3,8 @@ package com.cappleapple.instancednotinfinite.terrain;
 import com.cappleapple.instancednotinfinite.definition.EnvironmentType;
 import com.mojang.serialization.MapCodec;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import net.minecraft.core.BlockPos;
@@ -13,6 +15,7 @@ import net.minecraft.core.SectionPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.world.level.LevelHeightAccessor;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.NoiseColumn;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.WorldGenLevel;
@@ -44,9 +47,13 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
     private final AtomicReference<GenerationPlan> plan;
     private final Holder<Biome> biome;
-    private final MaterialPalette palette;
-    private final TerrainEnvelopeStrategy terrainStrategy;
+    private volatile MaterialPalette palette;
+    private volatile TerrainEnvelopeStrategy terrainStrategy;
     private final boolean customTerrain;
+    private volatile PlacementSample placementSample;
+    private boolean sampledOceanFloor;
+    private volatile boolean temporaryFloatingTerrain;
+    private final Set<ChunkPos> temporaryChunks = ConcurrentHashMap.newKeySet();
 
     public DungeonChunkGenerator(
         Holder<Biome> biome,
@@ -74,7 +81,57 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
     }
 
     public void updatePlan(GenerationPlan updated) {
+        this.palette = MaterialPalette.forDefinition(updated.definition(), this.biome);
+        if (!this.customTerrain) this.terrainStrategy = TerrainStrategyRegistry.forEnvironment(updated.definition().environment());
         this.plan.set(updated);
+    }
+
+    public PlacementSample beginPlacementSampling(boolean aquatic) {
+        int surface = aquatic ? getSeaLevel() : Math.max(63, getSeaLevel());
+        Integer floor = aquatic ? surface - 24 : null;
+        this.sampledOceanFloor = false;
+        return this.placementSample = new PlacementSample(surface, floor);
+    }
+
+    public boolean sampledOceanFloor() {
+        return this.sampledOceanFloor;
+    }
+
+    public void endPlacementSampling() {
+        this.placementSample = null;
+    }
+
+    public void beginFloatingTerrain() {
+        this.temporaryFloatingTerrain = true;
+    }
+
+    public List<ChunkPos> finishFloatingTerrain() {
+        this.temporaryFloatingTerrain = false;
+        List<ChunkPos> result = this.temporaryChunks.stream()
+            .sorted(java.util.Comparator.comparingLong(ChunkPos::toLong)).toList();
+        this.temporaryChunks.clear();
+        return result;
+    }
+
+    private BlockState terrainBlock(GenerationPlan current, int x, int y, int z) {
+        if (current.floatingVoid()) {
+            if (!this.temporaryFloatingTerrain || y > current.terrainSurfaceY()
+                || !current.envelopeBounds().isInside(x, y, z)) return Blocks.AIR.defaultBlockState();
+            return flatBlock(y, current.terrainSurfaceY(), null);
+        }
+        return this.terrainStrategy.blockAt(current, this.palette, x, y, z);
+    }
+
+    private BlockState flatBlock(int y, int surface, Integer floor) {
+        int solidSurface = floor == null ? surface : floor;
+        if (y > surface) return Blocks.AIR.defaultBlockState();
+        if (y > solidSurface) return Blocks.WATER.defaultBlockState();
+        if (y == solidSurface) return this.palette.surface();
+        if (y >= solidSurface - 3) return this.palette.filler();
+        return this.palette.core();
+    }
+
+    public record PlacementSample(int surfaceY, Integer oceanFloorY) {
     }
 
     public boolean usesCustomTerrain() {
@@ -116,6 +173,7 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
             || chunkMinZ > current.envelopeBounds().maxZ() || chunkMinZ + 15 < current.envelopeBounds().minZ()) {
             return CompletableFuture.completedFuture(chunk);
         }
+        if (current.floatingVoid() && this.temporaryFloatingTerrain) this.temporaryChunks.add(chunk.getPos());
 
         BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
         Heightmap ocean = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.OCEAN_FLOOR_WG);
@@ -127,7 +185,7 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
             for (int localZ = 0; localZ < 16; localZ++) {
                 int z = chunkMinZ + localZ;
                 for (int y = minY; y <= maxY; y++) {
-                    BlockState state = this.terrainStrategy.blockAt(current, this.palette, x, y, z);
+                    BlockState state = terrainBlock(current, x, y, z);
                     if (!state.isAir()) {
                         chunk.setBlockState(mutable.set(localX, y, localZ), state, false);
                         ocean.update(localX, y, localZ, state);
@@ -141,9 +199,18 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
 
     @Override
     public int getBaseHeight(int x, int z, Heightmap.Types type, LevelHeightAccessor level, RandomState randomState) {
+        PlacementSample sample = this.placementSample;
+        if (sample != null) {
+            if (type == Heightmap.Types.OCEAN_FLOOR || type == Heightmap.Types.OCEAN_FLOOR_WG) this.sampledOceanFloor = true;
+            int top = sample.surfaceY();
+            if (sample.oceanFloorY() != null && !type.isOpaque().test(Blocks.WATER.defaultBlockState())) {
+                top = sample.oceanFloorY();
+            }
+            return Math.max(level.getMinBuildHeight(), Math.min(level.getMaxBuildHeight(), top + 1));
+        }
         GenerationPlan current = this.plan.get();
         for (int y = Math.min(level.getMaxBuildHeight() - 1, current.envelopeBounds().maxY()); y >= level.getMinBuildHeight(); y--) {
-            BlockState state = this.terrainStrategy.blockAt(current, this.palette, x, y, z);
+            BlockState state = terrainBlock(current, x, y, z);
             if (type.isOpaque().test(state)) return y + 1;
         }
         return level.getMinBuildHeight();
@@ -153,9 +220,11 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
     public NoiseColumn getBaseColumn(int x, int z, LevelHeightAccessor level, RandomState randomState) {
         BlockState[] states = new BlockState[level.getHeight()];
         GenerationPlan current = this.plan.get();
+        PlacementSample sample = this.placementSample;
         for (int index = 0; index < states.length; index++) {
             int y = level.getMinBuildHeight() + index;
-            states[index] = this.terrainStrategy.blockAt(current, this.palette, x, y, z);
+            states[index] = sample == null ? terrainBlock(current, x, y, z)
+                : flatBlock(y, sample.surfaceY(), sample.oceanFloorY());
         }
         return new NoiseColumn(level.getMinBuildHeight(), states);
     }
@@ -182,6 +251,7 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
     public void applyBiomeDecoration(WorldGenLevel level, ChunkAccess chunk, StructureManager structures) {
         GenerationPlan current = this.plan.get();
         if (current.definition().decoration() == com.cappleapple.instancednotinfinite.definition.DecorationMode.NONE
+            || current.floatingVoid()
             || current.definition().environment() == EnvironmentType.CAVE
             || current.definition().environment() == EnvironmentType.UNDERGROUND) {
             return;

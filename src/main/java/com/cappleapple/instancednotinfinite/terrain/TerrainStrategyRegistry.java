@@ -23,7 +23,7 @@ public final class TerrainStrategyRegistry {
         TerrainEnvelopeStrategy island = new SurfaceIslandStrategy();
         TerrainEnvelopeStrategy grounded = new GroundedSurfaceStrategy();
         strategies.put(EnvironmentType.SURFACE, grounded);
-        strategies.put(EnvironmentType.FLOATING_ISLAND, island);
+        strategies.put(EnvironmentType.FLOATING_ISLAND, new FloatingStructureStrategy());
         TerrainEnvelopeStrategy enclosed = new EnclosedTerrainStrategy();
         strategies.put(EnvironmentType.UNDERGROUND, enclosed);
         strategies.put(EnvironmentType.CAVE, enclosed);

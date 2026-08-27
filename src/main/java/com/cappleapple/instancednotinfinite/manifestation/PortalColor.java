@@ -39,6 +39,12 @@ public final class PortalColor {
         return alpha << 24 | rgb & 0x00FFFFFF;
     }
 
+    /** Fades an already-resolved color without replacing its configured opacity or RGB. */
+    public static int scaleAlpha(int argb, float scale) {
+        int alpha = Math.round((argb >>> 24) * Math.max(0.0F, Math.min(1.0F, scale)));
+        return alpha << 24 | argb & 0x00FFFFFF;
+    }
+
     /** Linearly shades an RGB color toward black or white while retaining its relative channel balance. */
     public static int adjustBrightness(int rgb, double relativeBrightness) {
         if (!Double.isFinite(relativeBrightness) || relativeBrightness < -1.0 || relativeBrightness > 1.0) {

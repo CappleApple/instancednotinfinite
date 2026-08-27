@@ -14,12 +14,14 @@ public record MaterialPalette(BlockState core, BlockState filler, BlockState sur
     }
 
     public static MaterialPalette forDefinition(DungeonDefinition definition, Holder<Biome> biome) {
-        if (definition.environment() == EnvironmentType.NETHER_LIKE) {
+        if (definition.environment() == EnvironmentType.NETHER_LIKE
+            || biome != null && biome.is(net.minecraft.tags.BiomeTags.IS_NETHER)) {
             return new MaterialPalette(
                 Blocks.BASALT.defaultBlockState(), Blocks.NETHERRACK.defaultBlockState(),
                 Blocks.NETHERRACK.defaultBlockState(), Blocks.LAVA.defaultBlockState());
         }
-        if (definition.environment() == EnvironmentType.END_LIKE) {
+        if (definition.environment() == EnvironmentType.END_LIKE
+            || biome != null && biome.is(net.minecraft.tags.BiomeTags.IS_END)) {
             return new MaterialPalette(
                 Blocks.END_STONE.defaultBlockState(), Blocks.END_STONE.defaultBlockState(),
                 Blocks.END_STONE.defaultBlockState(), Blocks.AIR.defaultBlockState());

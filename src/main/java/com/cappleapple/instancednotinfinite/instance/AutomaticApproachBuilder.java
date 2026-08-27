@@ -1,6 +1,7 @@
 package com.cappleapple.instancednotinfinite.instance;
 
 import com.cappleapple.instancednotinfinite.config.ServerConfig;
+import com.cappleapple.instancednotinfinite.structure.DungeonGenerationLevel;
 import com.cappleapple.instancednotinfinite.terrain.GenerationPlan;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -8,6 +9,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -18,6 +20,33 @@ final class AutomaticApproachBuilder {
     private static final int UPDATE_FLAGS = 3;
 
     private AutomaticApproachBuilder() {
+    }
+
+    static BuiltApproach buildFloating(ServerLevel level, GenerationPlan plan,
+        AutomaticEntryLocator.Approach approach, Settings settings) throws InstanceOperationException {
+        BlockState path = resolveSolidBlock(level, settings.pathBlock(), "approach.pathBlock");
+        BlockState platform = resolveSolidBlock(level, settings.platformBlock(), "approach.platformBlock");
+        if (!path.isFaceSturdy(level, approach.access().below(), Direction.UP)
+            || !platform.isFaceSturdy(level, approach.exterior().below(), Direction.UP)) {
+            throw new InstanceOperationException("Floating approach path and platform blocks must have a full supporting top face");
+        }
+        BuiltApproach built = build(level, plan, approach, settings);
+        DungeonGenerationLevel generation = new DungeonGenerationLevel(level, plan.envelopeBounds());
+        int distance = approach.access().distManhattan(approach.exterior());
+        int left = (settings.pathWidth() - 1) / 2;
+        int right = settings.pathWidth() / 2;
+        for (int step = 0; step <= distance; step++) {
+            BlockPos center = approach.access().relative(approach.outward(), step);
+            for (int offset = -left; offset <= right; offset++) {
+                BlockPos feet = center.relative(approach.outward().getClockWise(), offset);
+                BlockPos floor = feet.below();
+                if (!level.getBlockState(floor).isFaceSturdy(level, floor, Direction.UP)) {
+                    generation.setBlock(floor, path, UPDATE_FLAGS);
+                }
+                clearHeadroom(generation, feet, settings.pathClearanceHeight());
+            }
+        }
+        return built;
     }
 
     static BuiltApproach build(
@@ -40,6 +69,7 @@ final class AutomaticApproachBuilder {
         Direction sideways = outward.getClockWise();
         BlockPos platformCenter = approach.exterior().relative(outward, settings.distance());
         validateFits(plan, platformCenter, settings.platformRadius(), settings.platformClearanceHeight());
+        DungeonGenerationLevel generation = new DungeonGenerationLevel(level, plan.envelopeBounds());
 
         int left = (settings.pathWidth() - 1) / 2;
         int right = settings.pathWidth() / 2;
@@ -47,7 +77,7 @@ final class AutomaticApproachBuilder {
             BlockPos center = approach.exterior().relative(outward, step);
             for (int offset = -left; offset <= right; offset++) {
                 BlockPos feet = center.relative(sideways, offset);
-                setFloorAndClear(level, feet, path, settings.pathClearanceHeight());
+                setFloorAndClear(generation, feet, path, settings.pathClearanceHeight());
             }
         }
 
@@ -55,21 +85,25 @@ final class AutomaticApproachBuilder {
         for (int outwardOffset = -radius; outwardOffset <= radius; outwardOffset++) {
             for (int sideOffset = -radius; sideOffset <= radius; sideOffset++) {
                 BlockPos feet = platformCenter.relative(outward, outwardOffset).relative(sideways, sideOffset);
-                setFloorAndClear(level, feet, platform, settings.platformClearanceHeight());
+                setFloorAndClear(generation, feet, platform, settings.platformClearanceHeight());
             }
         }
         for (int offset = radius + 1; offset <= settings.destinationPortalBehindEntryBlocks(); offset++) {
             setFloorAndClear(
-                level, platformCenter.relative(outward, offset), platform, settings.platformClearanceHeight());
+                generation, platformCenter.relative(outward, offset), platform, settings.platformClearanceHeight());
         }
         BlockPos destinationPortal = platformCenter.relative(outward, settings.destinationPortalBehindEntryBlocks());
         validateDestinationPortalFits(plan, destinationPortal);
-        setFloorAndClear(level, destinationPortal, platform, settings.platformClearanceHeight());
+        setFloorAndClear(generation, destinationPortal, platform, settings.platformClearanceHeight());
         return new BuiltApproach(platformCenter.immutable(), yawFacing(outward.getOpposite()));
     }
 
-    private static void setFloorAndClear(ServerLevel level, BlockPos feet, BlockState floor, int clearanceHeight) {
+    private static void setFloorAndClear(WorldGenLevel level, BlockPos feet, BlockState floor, int clearanceHeight) {
         level.setBlock(feet.below(), floor, UPDATE_FLAGS);
+        clearHeadroom(level, feet, clearanceHeight);
+    }
+
+    private static void clearHeadroom(WorldGenLevel level, BlockPos feet, int clearanceHeight) {
         for (int offsetY = 0; offsetY < clearanceHeight; offsetY++) {
             BlockPos clear = feet.above(offsetY);
             if (!level.getBlockState(clear).isAir()) {
@@ -145,6 +179,12 @@ final class AutomaticApproachBuilder {
         String pathBlock,
         int destinationPortalBehindEntryBlocks
     ) {
+        Settings withMinimumLanding() {
+            return new Settings(distance, Math.max(1, platformRadius), Math.max(3, pathWidth),
+                Math.max(2, pathClearanceHeight), Math.max(2, platformClearanceHeight),
+                platformBlock, pathBlock, destinationPortalBehindEntryBlocks);
+        }
+
         Settings(
             int distance,
             int platformRadius,

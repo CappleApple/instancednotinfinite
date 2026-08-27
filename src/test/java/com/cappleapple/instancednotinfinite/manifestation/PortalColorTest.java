@@ -43,6 +43,21 @@ class PortalColorTest {
     }
 
     @Test
+    void placeholderCrossfadesPreserveResolvedPortalColorsAndOpacity() {
+        assertEquals(0xF5123456, PortalColor.scaleAlpha(0xF5123456, 1.0F));
+        assertEquals(0x7B123456, PortalColor.scaleAlpha(0xF5123456, 0.5F));
+        assertEquals(0x3AABCDEF, PortalColor.scaleAlpha(0x73ABCDEF, 0.5F));
+        assertEquals(0x00123456, PortalColor.scaleAlpha(0xF5123456, 0.0F));
+        assertEquals(0x00123456, PortalColor.scaleAlpha(0x00123456, 1.0F));
+    }
+
+    @Test
+    void placeholderCrossfadeAlphaIsClamped() {
+        assertEquals(0x00123456, PortalColor.scaleAlpha(0x80123456, -1.0F));
+        assertEquals(0x80123456, PortalColor.scaleAlpha(0x80123456, 2.0F));
+    }
+
+    @Test
     void formatsPackedArgbAsUserFacingRgba() {
         assertEquals("#11223344", PortalColor.toRgbaHex(0x44112233));
         assertEquals("#AABBCCFF", PortalColor.toRgbaHex(0xFFAABBCC));

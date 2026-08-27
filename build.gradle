@@ -40,7 +40,9 @@ configurations {
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
 sourceSets {
-    testFixtures
+    testFixtures {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+    }
 }
 
 neoForge {
@@ -81,7 +83,8 @@ neoForge {
             type = 'gameTestServer'
             gameDirectory = project.layout.projectDirectory.dir('run-gametest')
             // The lifecycle test reuses Minecraft's one-block empty structure as its arena.
-            systemProperty 'neoforge.enabledGameTestNamespaces', "${project.mod_id},minecraft"
+            systemProperty 'neoforge.enabledGameTestNamespaces', providers.gradleProperty('gameTestNamespaces')
+                .getOrElse("${project.mod_id},minecraft,instancednotinfinite_integration")
         }
     }
 
@@ -91,6 +94,18 @@ neoForge {
             // Development runs keep representative dungeon datapacks without packaging them in the production JAR.
             sourceSet(sourceSets.testFixtures)
         }
+    }
+}
+
+// A separate template namespace lets real-mod generation tests run without mock-player login tests.
+def minecraftTestResources = layout.buildDirectory.file(
+    "moddev/artifacts/neoforge-${neo_version}-client-extra-aka-minecraft-resources.jar")
+tasks.named('processTestFixturesResources', ProcessResources).configure {
+    dependsOn 'createMinecraftArtifacts'
+    from(zipTree(minecraftTestResources)) {
+        include 'data/minecraft/structure/bastion/mobs/empty.nbt'
+        eachFile { details -> details.path = 'data/instancednotinfinite_integration/structure/empty.nbt' }
+        includeEmptyDirs = false
     }
 }
 

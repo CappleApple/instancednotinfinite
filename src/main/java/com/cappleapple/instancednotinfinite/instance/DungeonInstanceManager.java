@@ -21,6 +21,7 @@ import com.cappleapple.instancednotinfinite.definition.TerrainSettings;
 import com.cappleapple.instancednotinfinite.player.PlayerReturnManager;
 import com.cappleapple.instancednotinfinite.manifestation.PortalAppearanceResolver;
 import com.cappleapple.instancednotinfinite.manifestation.ResolvedPortalColors;
+import com.cappleapple.instancednotinfinite.structure.DungeonGenerationLevel;
 import com.cappleapple.instancednotinfinite.structure.DungeonStructurePlacer;
 import com.cappleapple.instancednotinfinite.structure.DungeonStructurePlacer.PreparedStructure;
 import com.cappleapple.instancednotinfinite.terrain.GenerationPlan;
@@ -30,6 +31,7 @@ import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -42,6 +44,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -61,6 +64,8 @@ public final class DungeonInstanceManager implements AutoCloseable {
     private final PlayerReturnManager returns;
     private final InstanceCleanupManager cleanup;
     private final Map<InstanceId, Integer> unloadRequestedAtTick = new HashMap<>();
+    private final Map<UUID, PendingEntry> pendingEntries = new LinkedHashMap<>();
+    private final GenerationTickBudget generationBudget = new GenerationTickBudget();
     private int tickCounter;
 
     private DungeonInstanceManager(MinecraftServer server) {
@@ -131,6 +136,40 @@ public final class DungeonInstanceManager implements AutoCloseable {
         Consumer<List<VisualBlock>> snapshotBatchConsumer
     ) throws InstanceOperationException {
         return beginGeneration(dungeonId, InstanceLifecycleOverrides.empty(), snapshotBatchConsumer);
+    }
+
+    /** Queue a command entry without completing its construction inside the command callback. */
+    public DungeonInstance queueEntry(ServerPlayer player, Optional<ResourceLocation> dungeonId,
+        InstanceLifecycleOverrides lifecycleOverrides) throws InstanceOperationException {
+        requireServerThread();
+        if (this.server.getPlayerList().getPlayer(player.getUUID()) != player || !player.isAlive()) {
+            throw new InstanceOperationException("Dungeon entry requires a living, connected player");
+        }
+        if (this.pendingEntries.containsKey(player.getUUID())) {
+            throw new InstanceOperationException("You already have a dungeon entry generating; wait for it or delete that instance");
+        }
+        InstanceId id = InstanceId.random();
+        ResourceLocation selected = dungeonId.orElseGet(() -> {
+            long selectionSeed = SeedDerivation.derive(
+                this.server.getWorldData().worldGenOptions().seed(), id.value(), "definition_pool");
+            return DungeonDefinitionRegistry.INSTANCE.select(selectionSeed).orElse(null);
+        });
+        if (selected == null) throw new InstanceOperationException("No valid dungeon definitions are loaded");
+        DungeonGenerationJob job = new DungeonGenerationJob(
+            this, prepareCreation(selected, id, lifecycleOverrides), 1, false, ignored -> {});
+        this.pendingEntries.put(player.getUUID(), new PendingEntry(player, player.level().dimension(), job));
+        return job.instance();
+    }
+
+    /** Catalysts and command entries consume the same global per-tick generation allowance. */
+    public boolean advanceGeneration(DungeonGenerationJob job) throws InstanceOperationException {
+        requireServerThread();
+        if (job.complete()) return false;
+        if (job.instance().state() != InstanceState.CREATING) {
+            throw new InstanceOperationException("Generation was cancelled for instance " + job.instance().id());
+        }
+        return this.generationBudget.advance(this.server.getTickCount(),
+            ServerConfig.INSTANCE.generationTimeBudgetMillis.get(), ServerConfig.INSTANCE.maximumBlockOperationsPerTick.get(), job::advance);
     }
 
     public DungeonGenerationJob beginGeneration(
@@ -218,9 +257,13 @@ public final class DungeonInstanceManager implements AutoCloseable {
 
         try {
             DynamicLevelBackend.CreatedLevel created = this.backend.create(this.server, id, resolved, seed);
-            PreparedStructure prepared = this.structurePlacer.prepare(created.level(), resolved, created.generator(), seed);
+            boolean inferEnvironment = automaticDefinition && DungeonDefinitionRegistry.INSTANCE.configuredOverride(dungeonId)
+                .map(override -> override.environment() == null).orElse(true);
+            PreparedStructure prepared = this.structurePlacer.prepare(created.level(), resolved, created.generator(), seed, inferEnvironment);
+            definition = effectiveDefinition(prepared.definition().definition(), automaticDefinition);
             GenerationPlan plan = GenerationPlan.fromBounds(
-                seed, definition, prepared.bounds(), prepared.origin(), automaticDefinition, prepared.terrainSurfaceY());
+                seed, definition, prepared.bounds(), prepared.origin(), automaticDefinition,
+                prepared.terrainSurfaceY(), prepared.oceanFloorY());
             created.generator().updatePlan(plan);
             resizeWorldBorder(created.level(), plan);
             instance.setPlan(plan);
@@ -251,6 +294,37 @@ public final class DungeonInstanceManager implements AutoCloseable {
         NeoForge.EVENT_BUS.post(new DungeonInstanceCreatedEvent(creation.instance()));
         InstancedNotInfinite.LOGGER.info(
             "[Dungeon {}] Incremental generation finished; instance ACTIVE", creation.instance().id().shortId());
+    }
+
+    PreparedDungeonCreation confirmPlacedEnvironment(PreparedDungeonCreation creation) {
+        PreparedStructure prepared = creation.structure();
+        var evidence = prepared.environmentEvidence();
+        if (!creation.plan().floatingVoid() || evidence == null || prepared.worldgenStart() == null) return creation;
+        var pieces = prepared.worldgenStart().getPieces();
+        BoundingBox actual = net.minecraft.world.level.levelgen.structure.StructurePiece.createBoundingBox(pieces.stream());
+        var environment = evidence.classify(actual);
+        if (environment == creation.plan().definition().environment()) return creation;
+        // Some pieces project to a heightmap only in postProcess. Their provisional start Y is not a sky anchor.
+        DungeonDefinition definition = effectiveDefinition(creation.plan().definition().withEnvironment(environment), creation.automaticDefinition());
+        var resolved = new ResolvedDungeonDefinition(definition, prepared.definition().structureId(),
+            prepared.definition().structureKind(), prepared.definition().biome(), prepared.definition().biomeId());
+        BlockPos origin = new BlockPos(actual.minX(), actual.minY(), actual.minZ());
+        PreparedStructure confirmed = new PreparedStructure(resolved, actual,
+            pieces.stream().map(net.minecraft.world.level.levelgen.structure.StructurePiece::getBoundingBox).toList(),
+            origin, evidence.surfaceY(), evidence.oceanFloorY(), prepared.worldgenStart(), prepared.worldgenStructure(), null, evidence);
+        GenerationPlan fitted = GenerationPlan.fromBounds(creation.plan().seed(), definition, actual, origin,
+            creation.automaticDefinition(), evidence.surfaceY(), evidence.oceanFloorY());
+        // Retain the coordinate frame already used by streamed structure blocks and existing terrain chunks.
+        BoundingBox envelope = creation.plan().envelopeBounds();
+        GenerationPlan plan = new GenerationPlan(fitted.seed(), definition, actual, fitted.guaranteedBounds(), envelope,
+            origin, fitted.terrainSurfaceY(), fitted.entryPosition(), fitted.entryYaw(), fitted.oceanFloorY(), false);
+        creation.created().generator().updatePlan(plan);
+        creation.instance().setPlan(plan);
+        this.data.changed();
+        InstancedNotInfinite.LOGGER.info("Confirmed post-placement environment for {} as {} at actual piece Y={}..{}; temporary ground retained",
+            definition.id(), environment, actual.minY(), actual.maxY());
+        return new PreparedDungeonCreation(creation.instance(), creation.created(), confirmed, plan,
+            creation.automaticDefinition(), creation.biomeFogColor());
     }
 
     void failPreparedCreation(PreparedDungeonCreation creation, Exception cause) {
@@ -354,6 +428,14 @@ public final class DungeonInstanceManager implements AutoCloseable {
         return returned;
     }
 
+    public boolean returnFallenPlayer(ServerPlayer player) {
+        requireServerThread();
+        if (player.getY() >= player.serverLevel().getMinBuildHeight()
+            || getByDimension(player.level().dimension().location()).isEmpty()) return false;
+        this.returns.returnFromVoid(player);
+        return true;
+    }
+
     public void complete(InstanceId id) throws InstanceOperationException {
         requireServerThread();
         DungeonInstance instance = require(id);
@@ -369,6 +451,10 @@ public final class DungeonInstanceManager implements AutoCloseable {
     public void delete(InstanceId id) throws InstanceOperationException {
         requireServerThread();
         DungeonInstance instance = require(id);
+        if (instance.state() == InstanceState.CREATING) {
+            instance.fail("Deleted while generation was pending", System.currentTimeMillis());
+            this.data.changed();
+        }
         returnAll(instance);
         if (onlineInside(instance) > 0) {
             throw new InstanceOperationException("Players remain inside instance " + id.shortId());
@@ -431,6 +517,7 @@ public final class DungeonInstanceManager implements AutoCloseable {
     public void tick() {
         requireServerThread();
         processCleanupResults();
+        tickPendingEntries();
         if (++this.tickCounter % 20 != 0) {
             return;
         }
@@ -486,6 +573,56 @@ public final class DungeonInstanceManager implements AutoCloseable {
                 }
             }
         }
+    }
+
+    private void tickPendingEntries() {
+        for (PendingEntry pending : List.copyOf(this.pendingEntries.values())) {
+            if (this.pendingEntries.get(pending.player().getUUID()) != pending) continue;
+            try {
+                if (!canFinishEntry(pending)) {
+                    cancelPendingEntry(pending, "Player disconnected, died, or changed dimension while generation was pending");
+                    continue;
+                }
+                advanceGeneration(pending.job());
+                if (pending.job().complete()) {
+                    if (!canFinishEntry(pending)) {
+                        cancelPendingEntry(pending, "Player is no longer available for the generated dungeon");
+                        continue;
+                    }
+                    this.pendingEntries.remove(pending.player().getUUID());
+                    enter(pending.player(), pending.job().instance().id());
+                    pending.player().sendSystemMessage(Component.literal("Entered dungeon instance " + pending.job().instance().id()));
+                }
+            } catch (Exception exception) {
+                cancelPendingEntry(pending, "Dungeon entry failed: " + exception.getMessage());
+                InstancedNotInfinite.LOGGER.warn("[Dungeon {}] Queued entry did not complete: {}",
+                    pending.job().instance().id().shortId(), exception.getMessage());
+            }
+        }
+    }
+
+    private boolean canFinishEntry(PendingEntry pending) {
+        ServerPlayer player = pending.player();
+        return this.server.getPlayerList().getPlayer(player.getUUID()) == player && player.isAlive()
+            && player.level().dimension().equals(pending.sourceDimension());
+    }
+
+    private void cancelPendingEntry(PendingEntry pending, String reason) {
+        this.pendingEntries.remove(pending.player().getUUID());
+        pending.job().releaseTickets();
+        if (get(pending.job().instance().id()).isPresent()) {
+            try {
+                cancelCreation(pending.job().instance().id(), reason);
+            } catch (InstanceOperationException exception) {
+                InstancedNotInfinite.LOGGER.error("Could not queue cleanup for cancelled dungeon entry", exception);
+            }
+        }
+        if (this.server.getPlayerList().getPlayer(pending.player().getUUID()) == pending.player()) {
+            pending.player().sendSystemMessage(Component.literal(reason));
+        }
+    }
+
+    private record PendingEntry(ServerPlayer player, ResourceKey<Level> sourceDimension, DungeonGenerationJob job) {
     }
 
     public void requestCleanupRetries() {
@@ -797,7 +934,9 @@ public final class DungeonInstanceManager implements AutoCloseable {
     private static DungeonDefinition effectiveDefinition(DungeonDefinition source, boolean automaticDefinition) {
         int cappedRadius = Math.min(source.terrain().maximumRadius(), ServerConfig.INSTANCE.maximumTerrainRadius.get());
         int horizontalPadding = source.terrain().horizontalPadding();
-        if ((automaticDefinition && GenerationPlan.usesSurfaceApproach(source.environment()))
+        if ((automaticDefinition && (GenerationPlan.usesSurfaceApproach(source.environment())
+                || source.environment() == com.cappleapple.instancednotinfinite.definition.EnvironmentType.UNDERWATER))
+            || source.environment() == com.cappleapple.instancednotinfinite.definition.EnvironmentType.FLOATING_ISLAND
             || GenerationPlan.usesUndergroundApproach(source.environment())) {
             int approachHalfWidth = Math.max(
                 ServerConfig.INSTANCE.approachPlatformRadius.get(),
@@ -825,7 +964,18 @@ public final class DungeonInstanceManager implements AutoCloseable {
         BlockPos feet;
         float yaw = plan.entryYaw();
         float requestedYaw = yaw;
-        if (automaticDefinition && GenerationPlan.usesSurfaceApproach(plan.definition().environment())) {
+        if (plan.floatingVoid()) {
+            AutomaticApproachBuilder.Settings settings = AutomaticApproachBuilder.Settings.fromConfig().withMinimumLanding();
+            AutomaticEntryLocator.Approach approach = FloatingEntryLocator.locate(level, plan, prepared.authoredPieceBounds(), settings)
+                .orElseThrow(() -> new InstanceOperationException(
+                    "Floating structure has no safe 3x3 surface landing with room for the configured entrance approach"));
+            AutomaticApproachBuilder.BuiltApproach built = AutomaticApproachBuilder.buildFloating(level, plan, approach, settings);
+            feet = built.spawn();
+            yaw = built.yaw();
+            if (!isSafeEntryAndReturnPortal(level, feet, yaw)) {
+                throw new InstanceOperationException("Floating structure entrance platform is not safe at " + feet);
+            }
+        } else if (automaticDefinition && GenerationPlan.usesSurfaceApproach(plan.definition().environment())) {
             AutomaticEntryLocator.Approach approach = AutomaticEntryLocator.locate(level, plan)
                 .orElseThrow(() -> new InstanceOperationException(
                     "Generated surface structure has no detectable exterior side around its actual bounds " + plan.structureBounds()));
@@ -848,16 +998,27 @@ public final class DungeonInstanceManager implements AutoCloseable {
                 throw new InstanceOperationException("Configured underground approach did not create a safe player platform at " + feet);
             }
         } else {
-            feet = (automaticDefinition
+            Optional<BlockPos> safe = automaticDefinition
                     ? SafeEntrySearch.automatic(plan, candidate -> isSafeEntryAndReturnPortal(level, candidate, requestedYaw))
-                    : SafeEntrySearch.nearby(plan, candidate -> isSafeEntryAndReturnPortal(level, candidate, requestedYaw)))
-                .orElseThrow(() -> new InstanceOperationException(automaticDefinition
+                    : SafeEntrySearch.nearby(plan, candidate -> isSafeEntryAndReturnPortal(level, candidate, requestedYaw));
+            if (safe.isEmpty() && automaticDefinition && plan.oceanFloorY() != null) {
+                // Open submerged ruins may have no dry authored interior. Arrive above the basin without flooding or carving the ruin.
+                AutomaticApproachBuilder.BuiltApproach built = AutomaticApproachBuilder.build(level, plan,
+                    AutomaticEntryLocator.surfaceFallback(plan), AutomaticApproachBuilder.Settings.fromConfig().withMinimumLanding());
+                feet = built.spawn();
+                yaw = built.yaw();
+                if (!isSafeEntryAndReturnPortal(level, feet, yaw)) {
+                    throw new InstanceOperationException("Aquatic surface arrival platform is not safe at " + feet);
+                }
+            } else {
+                feet = safe.orElseThrow(() -> new InstanceOperationException(automaticDefinition
                     ? "Generated structure has no safe standing space inside its actual bounds " + plan.structureBounds()
                     : "Configured entry has no safe standing space within 12 horizontal and 32 vertical blocks of " + requested));
+            }
         }
         return new GenerationPlan(
             plan.seed(), plan.definition(), plan.structureBounds(), plan.guaranteedBounds(), plan.envelopeBounds(),
-            plan.structureOrigin(), plan.terrainSurfaceY(), feet.immutable(), yaw);
+            plan.structureOrigin(), plan.terrainSurfaceY(), feet.immutable(), yaw, plan.oceanFloorY(), plan.floatingVoid());
     }
 
     private static boolean isSafeStandingPosition(ServerLevel level, BlockPos feet) {
@@ -890,7 +1051,8 @@ public final class DungeonInstanceManager implements AutoCloseable {
             && !level.getBlockState(portalPos).canBeReplaced()) {
             throw new InstanceOperationException("Return portal position is not replaceable at " + portalPos.toShortString());
         }
-        level.setBlock(portalPos, ModContent.MANIFESTATION_PORTAL.get().defaultBlockState(), 3);
+        new DungeonGenerationLevel(level, plan.envelopeBounds())
+            .setBlock(portalPos, ModContent.MANIFESTATION_PORTAL.get().defaultBlockState(), 3);
         if (!(level.getBlockEntity(portalPos) instanceof ManifestationPortalBlockEntity portal)) {
             throw new InstanceOperationException("Return portal block entity was not created at " + portalPos.toShortString());
         }
@@ -911,6 +1073,8 @@ public final class DungeonInstanceManager implements AutoCloseable {
 
     @Override
     public void close() {
+        this.pendingEntries.values().forEach(pending -> pending.job().releaseTickets());
+        this.pendingEntries.clear();
         this.data.changed();
         this.server.overworld().getDataStorage().save();
         this.cleanup.close();

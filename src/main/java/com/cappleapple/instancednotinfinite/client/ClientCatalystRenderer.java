@@ -4,8 +4,10 @@ import com.cappleapple.instancednotinfinite.InstancedNotInfinite;
 import com.cappleapple.instancednotinfinite.config.ServerConfig;
 import com.cappleapple.instancednotinfinite.content.ManifestationTargetComponent;
 import com.cappleapple.instancednotinfinite.content.ModContent;
+import com.cappleapple.instancednotinfinite.manifestation.PortalColor;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import java.util.Optional;
 import net.minecraft.client.Minecraft;
 import net.minecraft.Util;
 import net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer;
@@ -16,10 +18,9 @@ import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 
 public final class ClientCatalystRenderer extends BlockEntityWithoutLevelRenderer {
-    private static final ResourceLocation FALLBACK = ResourceLocation.fromNamespaceAndPath(
-        InstancedNotInfinite.MOD_ID, "textures/item/manifestation_catalyst.png");
     private static final ClientDungeonCatalog.PortalPreviewColors FALLBACK_PORTAL =
-        new ClientDungeonCatalog.PortalPreviewColors(FALLBACK, 0xF5010104, 0x732AAAFF);
+        new ClientDungeonCatalog.PortalPreviewColors(ResourceLocation.fromNamespaceAndPath(
+            InstancedNotInfinite.MOD_ID, "manifestation_catalyst"), 0xF5010104, 0x732AAAFF);
     private static ClientCatalystRenderer instance;
 
     private ClientCatalystRenderer() {
@@ -39,13 +40,17 @@ public final class ClientCatalystRenderer extends BlockEntityWithoutLevelRendere
             return;
         }
         if (target != null && target.kind().equals("structure_pool")) {
-            renderStructurePool(target.id().orElseThrow(), context, pose, buffer, light, overlay);
+            renderStructurePool(target.id().orElseThrow(), pose, buffer, light, overlay);
             return;
         }
-        ResourceLocation texture = target == null
-            ? FALLBACK
-            : target.id().flatMap(DungeonIconCache::request).orElse(FALLBACK);
-        renderFlatFallback(texture, pose, buffer, light, overlay);
+        Optional<ResourceLocation> texture = target == null
+            ? Optional.empty()
+            : target.id().flatMap(DungeonIconCache::request);
+        if (texture.isPresent()) {
+            renderFlatIcon(texture.orElseThrow(), pose, buffer, light, overlay, 1.0F);
+        } else {
+            renderPortalItem(target, pose, buffer);
+        }
     }
 
     private static void renderWorldItem(
@@ -142,7 +147,6 @@ public final class ClientCatalystRenderer extends BlockEntityWithoutLevelRendere
 
     private static void renderStructurePool(
         ResourceLocation poolId,
-        ItemDisplayContext context,
         PoseStack pose,
         MultiBufferSource buffer,
         int light,
@@ -152,31 +156,48 @@ public final class ClientCatalystRenderer extends BlockEntityWithoutLevelRendere
         long elapsed = Util.getMillis();
         long swapIntervalMillis = ServerConfig.INSTANCE.poolItemSwapIntervalSeconds.get() * 1_000L;
         if (members.isEmpty()) {
-            renderFlatFallback(FALLBACK, pose, buffer, light, overlay);
+            renderPortal(FALLBACK_PORTAL, pose, buffer, elapsed, 1.0F, 0.0F);
             return;
         }
         var icons = members.stream()
-            .map(member -> DungeonIconCache.request(member).orElse(FALLBACK))
+            .map(DungeonIconCache::request)
             .toList();
         PoolCatalystAnimation.IconFrame frame = PoolCatalystAnimation.iconFrame(
             elapsed, members.size(), swapIntervalMillis);
-        renderFlatFallback(icons.get(frame.currentIndex()), pose, buffer, light, overlay, 1.0F - frame.blend());
+        renderPoolIcon(members.get(frame.currentIndex()), icons.get(frame.currentIndex()),
+            pose, buffer, light, overlay, elapsed, 1.0F - frame.blend());
         if (frame.blend() > 0.0F && frame.nextIndex() != frame.currentIndex()) {
-            renderFlatFallback(icons.get(frame.nextIndex()), pose, buffer, light, overlay, frame.blend());
+            renderPoolIcon(members.get(frame.nextIndex()), icons.get(frame.nextIndex()),
+                pose, buffer, light, overlay, elapsed, frame.blend());
         }
     }
 
-    private static void renderFlatFallback(
-        ResourceLocation texture,
+    private static void renderPoolIcon(
+        ResourceLocation dungeonId,
+        Optional<ResourceLocation> texture,
         PoseStack pose,
         MultiBufferSource buffer,
         int light,
-        int overlay
+        int overlay,
+        long elapsed,
+        float alpha
     ) {
-        renderFlatFallback(texture, pose, buffer, light, overlay, 1.0F);
+        if (texture.isPresent()) {
+            renderFlatIcon(texture.orElseThrow(), pose, buffer, light, overlay, alpha);
+        } else {
+            // Keep the member's slot and resolved colors while its generated GUI sprite is pending.
+            var colors = ClientDungeonCatalog.portalPreview(dungeonId).orElse(FALLBACK_PORTAL);
+            var fadedColors = new ClientDungeonCatalog.PortalPreviewColors(
+                dungeonId, PortalColor.scaleAlpha(colors.innerColor(), alpha),
+                PortalColor.scaleAlpha(colors.outerColor(), alpha));
+            // GUI crossfades must not let the cube's depth writes cut a hole in the other flat sprite.
+            MultiBufferSource iconBuffer = type -> buffer.getBuffer(
+                type == RenderType.debugQuads() ? RenderType.debugStructureQuads() : type);
+            renderPortal(fadedColors, pose, iconBuffer, elapsed, 1.0F, 0.0F);
+        }
     }
 
-    private static void renderFlatFallback(
+    private static void renderFlatIcon(
         ResourceLocation texture,
         PoseStack pose,
         MultiBufferSource buffer,

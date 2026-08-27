@@ -14,11 +14,21 @@ public record GenerationPlan(
     BlockPos structureOrigin,
     int terrainSurfaceY,
     BlockPos entryPosition,
-    float entryYaw
+    float entryYaw,
+    Integer oceanFloorY,
+    boolean floatingVoid
 ) {
     public static final int ANCHOR_Y = 128;
     public static final int MIN_TERRAIN_Y = -63;
     public static final int MAX_TERRAIN_Y = 319;
+
+    /** Older saved instances retain their original terrain model. */
+    public GenerationPlan(long seed, DungeonDefinition definition, BoundingBox structureBounds,
+        BoundingBox guaranteedBounds, BoundingBox envelopeBounds, BlockPos structureOrigin,
+        int terrainSurfaceY, BlockPos entryPosition, float entryYaw) {
+        this(seed, definition, structureBounds, guaranteedBounds, envelopeBounds, structureOrigin,
+            terrainSurfaceY, entryPosition, entryYaw, null, false);
+    }
 
     public static GenerationPlan fallback(long seed, DungeonDefinition definition) {
         BoundingBox structure = new BoundingBox(-16, ANCHOR_Y, -16, 15, ANCHOR_Y + 31, 15);
@@ -47,6 +57,11 @@ public record GenerationPlan(
         boolean automaticEntry,
         int terrainSurfaceY
     ) {
+        return fromBounds(seed, definition, structure, origin, automaticEntry, terrainSurfaceY, null);
+    }
+
+    public static GenerationPlan fromBounds(long seed, DungeonDefinition definition, BoundingBox structure,
+        BlockPos origin, boolean automaticEntry, int terrainSurfaceY, Integer oceanFloorY) {
         int horizontal = definition.terrain().horizontalPadding();
         int vertical = definition.terrain().verticalPadding();
         int horizontalFalloff = falloffForPadding(horizontal, 12, 32);
@@ -68,12 +83,14 @@ public record GenerationPlan(
             structure.maxZ() + horizontal);
         BoundingBox envelope = new BoundingBox(
             guaranteed.minX() - horizontalFalloff,
-            usesGroundedTerrain(definition.environment())
+            usesGroundedTerrain(definition.environment()) || definition.environment() == EnvironmentType.FLOATING_ISLAND
                 ? MIN_TERRAIN_Y
-                : Math.max(MIN_TERRAIN_Y, guaranteed.minY() - verticalFalloff),
+                : Math.max(MIN_TERRAIN_Y, Math.min(guaranteed.minY() - verticalFalloff,
+                    oceanFloorY == null ? MAX_TERRAIN_Y : oceanFloorY - 8)),
             guaranteed.minZ() - horizontalFalloff,
             guaranteed.maxX() + horizontalFalloff,
-            Math.min(MAX_TERRAIN_Y, guaranteed.maxY() + verticalFalloff),
+            Math.min(MAX_TERRAIN_Y, Math.max(guaranteed.maxY() + verticalFalloff,
+                oceanFloorY == null ? MIN_TERRAIN_Y : terrainSurfaceY + 8)),
             guaranteed.maxZ() + horizontalFalloff);
         int radius = Math.max(
             Math.max(Math.abs(envelope.minX()), Math.abs(envelope.maxX())),
@@ -91,7 +108,8 @@ public record GenerationPlan(
                 structure.minZ() + structure.getZSpan() / 2)
             : origin.offset(definition.entry().x(), definition.entry().y(), definition.entry().z());
         return new GenerationPlan(
-            seed, definition, structure, guaranteed, envelope, origin.immutable(), terrainSurfaceY, entry.immutable(), definition.entry().yaw());
+            seed, definition, structure, guaranteed, envelope, origin.immutable(), terrainSurfaceY, entry.immutable(),
+            definition.entry().yaw(), oceanFloorY, definition.environment() == EnvironmentType.FLOATING_ISLAND);
     }
 
     public static boolean usesSurfaceApproach(EnvironmentType environment) {

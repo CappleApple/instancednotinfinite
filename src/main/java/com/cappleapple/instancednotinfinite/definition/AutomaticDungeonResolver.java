@@ -58,6 +58,8 @@ public final class AutomaticDungeonResolver {
 
         String adaptation = structure.terrainAdaptation().getSerializedName();
         String generationStep = structure.step().getName();
+        ResourceLocation typeId = BuiltInRegistries.STRUCTURE_TYPE.getKey(structure.type());
+        String structureType = typeId == null ? structure.type().toString() : typeId.toString();
         OptionalInt absoluteStartHeight = EncodedStructureMetadata.absoluteStartHeight(access, structure);
         EnvironmentInference.Classification inferred = EnvironmentInference.classify(new EnvironmentInference.Evidence(
             allMatch(effectiveBiomes, BiomeTags.IS_NETHER),
@@ -83,7 +85,6 @@ public final class AutomaticDungeonResolver {
         boolean naturalSpawning = override == null || override.allowNaturalMobSpawning() == null || override.allowNaturalMobSpawning();
         ReentryPolicy reentry = override != null && override.reentry() != null ? override.reentry() : ReentryPolicy.WHILE_ACTIVE;
         HeightContext height = heightFor(environment);
-        ResourceLocation typeId = BuiltInRegistries.STRUCTURE_TYPE.getKey(structure.type());
 
         DungeonDefinition definition = new DungeonDefinition(
             structureId.toString(), 1, structureId.toString(), StructureKind.WORLDGEN, weight, biomeRules,
@@ -92,7 +93,7 @@ public final class AutomaticDungeonResolver {
             naturalSpawning, reentry);
         AutomaticDungeonMetadata metadata = new AutomaticDungeonMetadata(
             structureId, structureId, sources, effectiveBiomes.size(), environment,
-            environmentSource, environmentReason, typeId == null ? structure.type().toString() : typeId.toString(),
+            environmentSource, environmentReason, structureType,
             adaptation, generationStep, horizontalPadding, verticalPadding, weight, placement, true);
         return new ResolvedDungeonOption(definition, metadata);
     }

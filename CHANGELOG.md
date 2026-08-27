@@ -1,5 +1,65 @@
 # Changelog
 
+## 1.1.3 — 2026-08-27
+
+### Fixed
+
+- `/dungeon enter` now generates across server ticks using the same generation job and shared time budget as manifestation catalysts, then teleports the player only when the instance is ready. Named, random, and lifecycle-override variants all use this path.
+- Pending command entries reject duplicate requests and cancel safely if the player disconnects, dies, changes dimension, or the instance is deleted.
+
+## 1.1.2 — 2026-08-27
+
+### Fixed
+
+- Self-protecting structures such as Sky Arena now finish placing all chunks without their own protection rejecting generated blocks.
+- Grounded structures with measured foundations now lower excessive flat terrain even when it buries only part of the building, fixing Burning Arena's lower floors being underground.
+- Generated structures, paths, terrain cleanup, and return portals use bounded construction writes while normal gameplay protection remains unchanged.
+
+## 1.1.1 — 2026-08-27
+
+### Fixed
+
+- Floating entrance routes now carve openings through obstructing walls instead of rejecting safe surface landings that lack a clear route outwards.
+- Entrance carving preserves supported landing floors and stays within the configured passage width and headroom.
+
+## 1.1 — 2026-08-27
+
+### Added
+
+- Added generic sky-structure placement with temporary flat biome terrain, terrain removal that preserves authored blocks, and a safe 3×3 edge landing connected to the entrance platform and return portal.
+- Falling below the minimum build height in an instance now returns players to their saved entrance portal in its original dimension, clearing fall distance and falling velocity.
+
+### Changed
+
+- Aquatic placement now retains a sampled waterline and seabed independently of structure height, without a mod-specific ship whitelist.
+- Fully submerged structures without a dry interior receive a surface arrival platform while their authored geometry remains underwater.
+- Automatic environment hints are refined from generated placement, with a post-placement check for structures that defer ground projection.
+
+## 1.0.3 — 2026-08-27
+
+### Fixed
+
+- Fixed Awesome Dungeon Ocean frigates and brigantines being classified as underwater structures despite their sea-level placement.
+- Preserved those ships' authored waterline and hull depth instead of raising the ocean above the entire ship.
+
+## 1.0.2 — 2026-08-27
+
+### Changed
+
+- Inventory and recipe-viewer catalyst placeholders now use the existing biome-colored portal cube until their generated icons are ready.
+- Structure-pool inventory placeholders retain each member's resolved portal colors during icon crossfades.
+
+## 1.0.1 — 2026-08-26
+
+### Added
+
+- Added a portable generated-recipe analysis cache under `config/instancednotinfinite/generated-recipes/`.
+- Added the one-shot `recipes.regenerateRecipeCache` option, which resets itself after a successful rebuild.
+
+### Changed
+
+- Automatic portal recipes now reuse cached structure profiles until their selected structures, inference inputs, or analyzed datapack resources change.
+
 ## 1.0 — 2026-08-21
 
 ### Added

@@ -1,0 +1,8 @@
+{
+  "type": "instancednotinfinite:placement_test",
+  "mode": "deferred",
+  "biomes": "minecraft:plains",
+  "step": "surface_structures",
+  "terrain_adaptation": "none",
+  "spawn_overrides": {}
+}

@@ -17,7 +17,8 @@ public final class OceanSurfaceStrategy implements TerrainEnvelopeStrategy {
 
         int waterLine = plan.terrainSurfaceY();
         int depth = Math.max(12, Math.min(32, plan.definition().terrain().verticalPadding() / 2));
-        int floorY = Math.max(outer.minY() + 4, waterLine - depth);
+        int floorY = plan.oceanFloorY() == null
+            ? Math.max(outer.minY() + 4, waterLine - depth) : plan.oceanFloorY();
         double distance = TerrainMath.boxDistance2d(basin, outer, x, z);
         if (distance > 0.0) {
             if (!DitheredTerrainFalloff.includesSurfaceVoxel(plan, x, y, z)) {

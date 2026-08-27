@@ -212,11 +212,9 @@ public final class DungeonManifestationManager implements AutoCloseable {
 
     public void tick() {
         requireServerThread();
-        long budgetStart = System.nanoTime();
-        long budgetNanos = (long)(ServerConfig.INSTANCE.generationTimeBudgetMillis.get() * 1_000_000.0);
         for (DungeonManifestation value : List.copyOf(data.values())) {
             try {
-                tickOne(value, budgetStart, budgetNanos);
+                tickOne(value);
             } catch (Exception exception) {
                 fail(value, exception);
             }
@@ -229,15 +227,12 @@ public final class DungeonManifestationManager implements AutoCloseable {
         }
     }
 
-    private void tickOne(DungeonManifestation value, long globalStart, long globalBudget) throws InstanceOperationException {
+    private void tickOne(DungeonManifestation value) throws InstanceOperationException {
         ServerLevel level = originLevel(value).orElse(null);
         if (level == null || value.state().terminal()) return;
         long now = level.getGameTime();
         DungeonGenerationJob job = jobs.get(value.id());
-        if (job != null && !job.complete() && System.nanoTime() - globalStart < globalBudget) {
-            double remainingMillis = Math.max(0.1, (globalBudget - (System.nanoTime() - globalStart)) / 1_000_000.0);
-            job.advance(remainingMillis, ServerConfig.INSTANCE.maximumBlockOperationsPerTick.get());
-        }
+        if (job != null && !job.complete()) DungeonInstanceManager.get(server).advanceGeneration(job);
         if (job != null) {
             // Terrain generation and heightmap priming can take many seconds for a large
             // structure, but there is nothing visual to reveal during that work. The first

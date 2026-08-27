@@ -19,7 +19,7 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
 
 public final class DungeonInstance {
     private final InstanceId id;
-    private final DungeonDefinition definition;
+    private DungeonDefinition definition;
     private final ResourceLocation dimensionId;
     private final ResourceLocation structureId;
     private final StructureKind structureKind;
@@ -102,6 +102,7 @@ public final class DungeonInstance {
     }
 
     public void setPlan(GenerationPlan plan) {
+        this.definition = plan.definition();
         this.plan = plan;
     }
 
@@ -293,6 +294,8 @@ public final class DungeonInstance {
         putBox(tag, "Envelope", plan.envelopeBounds());
         tag.putLong("Origin", plan.structureOrigin().asLong());
         tag.putInt("TerrainSurfaceY", plan.terrainSurfaceY());
+        if (plan.oceanFloorY() != null) tag.putInt("OceanFloorY", plan.oceanFloorY());
+        tag.putBoolean("FloatingVoid", plan.floatingVoid());
         tag.putLong("Entry", plan.entryPosition().asLong());
         tag.putFloat("EntryYaw", plan.entryYaw());
         return tag;
@@ -309,7 +312,9 @@ public final class DungeonInstance {
             BlockPos.of(tag.getLong("Origin")),
             tag.contains("TerrainSurfaceY", Tag.TAG_INT) ? tag.getInt("TerrainSurfaceY") : structure.minY() - 1,
             BlockPos.of(tag.getLong("Entry")),
-            tag.contains("EntryYaw", Tag.TAG_FLOAT) ? tag.getFloat("EntryYaw") : definition.entry().yaw());
+            tag.contains("EntryYaw", Tag.TAG_FLOAT) ? tag.getFloat("EntryYaw") : definition.entry().yaw(),
+            tag.contains("OceanFloorY", Tag.TAG_INT) ? tag.getInt("OceanFloorY") : null,
+            tag.getBoolean("FloatingVoid"));
     }
 
     private static void putBox(CompoundTag tag, String key, BoundingBox box) {

@@ -1,17 +1,18 @@
 package com.cappleapple.instancednotinfinite.structure;
 
 import com.cappleapple.instancednotinfinite.InstancedNotInfinite;
-import com.cappleapple.instancednotinfinite.definition.EncodedStructureMetadata;
+import com.cappleapple.instancednotinfinite.definition.EnvironmentType;
+import com.cappleapple.instancednotinfinite.definition.PlacementEnvironmentInference;
 import com.cappleapple.instancednotinfinite.definition.ResolvedDungeonDefinition;
 import com.cappleapple.instancednotinfinite.definition.StructureKind;
 import com.cappleapple.instancednotinfinite.terrain.DungeonChunkGenerator;
 import com.cappleapple.instancednotinfinite.terrain.FoundationSeatingReference;
 import com.cappleapple.instancednotinfinite.terrain.GenerationPlan;
 import com.cappleapple.instancednotinfinite.terrain.OceanSurfaceWaterline;
+import com.cappleapple.instancednotinfinite.terrain.TerrainSurfaceSeating;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.Vec3i;
@@ -32,19 +33,30 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.BiomeTags;
 
 public final class DungeonStructurePlacer {
     public PreparedStructure prepare(
         ServerLevel level,
         ResolvedDungeonDefinition definition,
         DungeonChunkGenerator generator,
-        long seed
+        long seed,
+        boolean inferEnvironment
     ) throws PlacementException {
-        return switch (definition.structureKind()) {
-            case WORLDGEN -> prepareWorldgen(level, definition, generator, seed);
-            case TEMPLATE -> prepareTemplate(level, definition, generator);
-            case AUTO -> throw new PlacementException("AUTO structure kind must be resolved before placement");
-        };
+        EnvironmentType environment = definition.definition().environment();
+        boolean aquatic = environment == EnvironmentType.OCEAN_SURFACE || environment == EnvironmentType.UNDERWATER
+            || (inferEnvironment && (definition.biome().is(BiomeTags.IS_OCEAN) || definition.biome().is(BiomeTags.IS_RIVER)));
+        DungeonChunkGenerator.PlacementSample sample = environment != EnvironmentType.CUSTOM
+            && !GenerationPlan.usesUndergroundApproach(environment) ? generator.beginPlacementSampling(aquatic) : null;
+        try {
+            return switch (definition.structureKind()) {
+                case WORLDGEN -> prepareWorldgen(level, definition, generator, seed, inferEnvironment, sample);
+                case TEMPLATE -> prepareTemplate(level, definition, generator, sample);
+                case AUTO -> throw new PlacementException("AUTO structure kind must be resolved before placement");
+            };
+        } finally {
+            generator.endPlacementSampling();
+        }
     }
 
     public void generateTerrain(ServerLevel level, GenerationPlan plan) {
@@ -88,13 +100,14 @@ public final class DungeonStructurePlacer {
         BoundingBox chunkBounds = new BoundingBox(
             chunkPos.getMinBlockX(), level.getMinBuildHeight(), chunkPos.getMinBlockZ(),
             chunkPos.getMaxBlockX(), level.getMaxBuildHeight() - 1, chunkPos.getMaxBlockZ());
+        DungeonGenerationLevel generation = new DungeonGenerationLevel(level, generator.plan().envelopeBounds());
         if (prepared.worldgenStart() != null) {
             LevelChunk chunk = level.getChunk(chunkX, chunkZ);
             primePlacementHeightmaps(level, chunkX, chunkZ);
             level.structureManager().addReferenceForStructure(
                 SectionPos.bottomOf(chunk), prepared.worldgenStructure(), prepared.worldgenStart().getChunkPos().toLong(), chunk);
             prepared.worldgenStart().placeInChunk(
-                level, level.structureManager(), generator,
+                generation, level.structureManager(), generator,
                 RandomSource.create(seed ^ chunkPos.toLong()), chunkBounds, chunkPos);
             return;
         }
@@ -107,7 +120,7 @@ public final class DungeonStructurePlacer {
             .setKnownShape(false)
             .setBoundingBox(chunkBounds);
         prepared.template().placeInWorld(
-            level, prepared.origin(), prepared.origin(), settings,
+            generation, prepared.origin(), prepared.origin(), settings,
             RandomSource.create(seed ^ chunkPos.toLong()), 2);
     }
 
@@ -127,13 +140,16 @@ public final class DungeonStructurePlacer {
         ServerLevel level,
         ResolvedDungeonDefinition definition,
         DungeonChunkGenerator generator,
-        long seed
+        long seed,
+        boolean inferEnvironment,
+        DungeonChunkGenerator.PlacementSample sample
     ) throws PlacementException {
         Structure structure = level.registryAccess().registryOrThrow(Registries.STRUCTURE).get(definition.structureId());
         if (structure == null) {
             throw new PlacementException("Unknown worldgen structure " + definition.structureId());
         }
         StructureStart start = findCompatibleStart(level, definition, generator, structure, seed);
+        boolean usedOceanFloor = generator.sampledOceanFloor();
         ChunkPos startChunk = start.getChunkPos();
         int generatedSurfaceY = generator.getBaseHeight(
             startChunk.getMinBlockX() + 8, startChunk.getMinBlockZ() + 8,
@@ -142,20 +158,31 @@ public final class DungeonStructurePlacer {
         start = fitVerticalEnvelope(level, definition, structure, start);
         BoundingBox bounds = start.getBoundingBox();
         BlockPos origin = new BlockPos(bounds.minX(), bounds.minY(), bounds.minZ());
-        OptionalInt encodedAbsoluteStart = EncodedStructureMetadata.absoluteStartHeight(level.registryAccess(), structure);
-        Integer absoluteStartHeight = encodedAbsoluteStart.isPresent() ? encodedAbsoluteStart.getAsInt() : null;
-        int translatedSurfaceY = OceanSurfaceWaterline.translate(
-            definition.definition().environment(), generatedSurfaceY, generator.getSeaLevel(),
-            originalMinimumY, bounds.minY(), absoluteStartHeight);
-        if (OceanSurfaceWaterline.preservesAuthoredSeaLevel(
-            definition.definition().environment(), generator.getSeaLevel(), absoluteStartHeight)) {
-            InstancedNotInfinite.LOGGER.info(
-                "Preserved authored ocean waterline for {} at Y={} (absolute start Y={}, sea level={}, vertical shift={})",
-                definition.structureId(), translatedSurfaceY, absoluteStartHeight, generator.getSeaLevel(),
-                bounds.minY() - originalMinimumY);
-        }
+        int shiftY = bounds.minY() - originalMinimumY;
+        int translatedSurfaceY = OceanSurfaceWaterline.translate(generatedSurfaceY, originalMinimumY, bounds.minY());
         BoundingBox pieceBounds = StructurePiece.createBoundingBox(start.getPieces().stream());
         Optional<StructureFoundationAnalyzer.FoundationProfile> foundation = StructureFoundationAnalyzer.profile(level, start);
+        EnvironmentType environment = definition.definition().environment();
+        PlacementEvidence evidence = inferEnvironment && sample != null
+            ? new PlacementEvidence(environment, translatedSurfaceY,
+                sample.oceanFloorY() == null ? null : sample.oceanFloorY() + shiftY, usedOceanFloor) : null;
+        if (inferEnvironment && sample != null) {
+            int groundY = foundation.map(StructureFoundationAnalyzer.FoundationProfile::placementGroundY).orElse(pieceBounds.minY());
+            EnvironmentType inferred = PlacementEnvironmentInference.classify(environment,
+                pieceBounds.minY() - shiftY, pieceBounds.maxY() - shiftY, groundY - shiftY,
+                sample.surfaceY(), sample.oceanFloorY(), usedOceanFloor);
+            InstancedNotInfinite.LOGGER.info(
+                "Placement evidence for {}: environment {} -> {}, pieces Y={}..{}, ground Y={}, flat surface Y={}, seabed Y={}, ocean-floor query={}",
+                definition.structureId(), environment, inferred, pieceBounds.minY() - shiftY, pieceBounds.maxY() - shiftY,
+                groundY - shiftY, sample.surfaceY(), sample.oceanFloorY(), usedOceanFloor);
+            environment = inferred;
+            definition = new ResolvedDungeonDefinition(definition.definition().withEnvironment(environment),
+                definition.structureId(), definition.structureKind(), definition.biome(), definition.biomeId());
+        }
+        Integer oceanFloorY = sample != null && sample.oceanFloorY() != null
+            && (environment == EnvironmentType.UNDERWATER || environment == EnvironmentType.OCEAN_SURFACE)
+            ? sample.oceanFloorY() + shiftY : null;
+        if (environment == EnvironmentType.FLOATING_ISLAND) translatedSurfaceY = Math.min(translatedSurfaceY, pieceBounds.minY() - 1);
         boolean adaptsTerrain = structure.terrainAdaptation() != TerrainAdjustment.NONE;
         int seatingReferenceY = foundation
             .map(profile -> FoundationSeatingReference.select(
@@ -163,6 +190,10 @@ public final class DungeonStructurePlacer {
             .orElse(pieceBounds.minY());
         int seatedSurfaceY = GenerationPlan.seatGroundedSurface(
             definition.definition().environment(), bounds.minY(), bounds.maxY(), seatingReferenceY, translatedSurfaceY);
+        if (sample != null && foundation.isPresent()) {
+            seatedSurfaceY = TerrainSurfaceSeating.seatToFoundation(
+                definition.definition().environment(), seatingReferenceY, translatedSurfaceY);
+        }
         if (seatedSurfaceY != translatedSurfaceY) {
             String foundationDescription = foundation
                 .map(profile -> profile.foundation().baseY() + ".." + profile.foundation().topY()
@@ -178,7 +209,7 @@ public final class DungeonStructurePlacer {
             .map(StructurePiece::getBoundingBox)
             .toList();
         return new PreparedStructure(
-            definition, bounds, authoredPieceBounds, origin, seatedSurfaceY, start, structure, null);
+            definition, bounds, authoredPieceBounds, origin, seatedSurfaceY, oceanFloorY, start, structure, null, evidence);
     }
 
     private static StructureStart fitVerticalEnvelope(
@@ -278,7 +309,8 @@ public final class DungeonStructurePlacer {
     private static PreparedStructure prepareTemplate(
         ServerLevel level,
         ResolvedDungeonDefinition definition,
-        DungeonChunkGenerator generator
+        DungeonChunkGenerator generator,
+        DungeonChunkGenerator.PlacementSample sample
     ) throws PlacementException {
         Optional<StructureTemplate> optional = level.getStructureManager().get(definition.structureId());
         StructureTemplate template = optional.orElseThrow(
@@ -304,10 +336,12 @@ public final class DungeonStructurePlacer {
         BlockPos origin = new BlockPos(-size.getX() / 2, originY, -size.getZ() / 2);
         StructurePlaceSettings settings = new StructurePlaceSettings().setMirror(Mirror.NONE).setRotation(Rotation.NONE);
         BoundingBox bounds = template.getBoundingBox(settings, origin);
-        int terrainSurfaceY = GenerationPlan.usesSurfaceApproach(definition.definition().environment())
+        int terrainSurfaceY = sample != null && sample.oceanFloorY() != null ? sample.surfaceY()
+            : GenerationPlan.usesSurfaceApproach(definition.definition().environment())
             ? naturalSurfaceY
             : origin.getY() - 1;
-        return new PreparedStructure(definition, bounds, List.of(bounds), origin, terrainSurfaceY, null, null, template);
+        return new PreparedStructure(definition, bounds, List.of(bounds), origin, terrainSurfaceY,
+            sample == null ? null : sample.oceanFloorY(), null, null, template, null);
     }
 
     private static void forEachChunk(BoundingBox bounds, ChunkConsumer consumer) {
@@ -328,12 +362,21 @@ public final class DungeonStructurePlacer {
         List<BoundingBox> authoredPieceBounds,
         BlockPos origin,
         int terrainSurfaceY,
+        Integer oceanFloorY,
         StructureStart worldgenStart,
         Structure worldgenStructure,
-        StructureTemplate template
+        StructureTemplate template,
+        PlacementEvidence environmentEvidence
     ) {
         public PreparedStructure {
             authoredPieceBounds = List.copyOf(authoredPieceBounds);
+        }
+    }
+
+    public record PlacementEvidence(EnvironmentType hint, int surfaceY, Integer oceanFloorY, boolean usedOceanFloor) {
+        public EnvironmentType classify(BoundingBox actualPieces) {
+            return PlacementEnvironmentInference.classify(hint, actualPieces.minY(), actualPieces.maxY(),
+                actualPieces.minY(), surfaceY, oceanFloorY, usedOceanFloor);
         }
     }
 

@@ -6,9 +6,12 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
 
 public final class UnderwaterStrategy implements TerrainEnvelopeStrategy {
     private final SurfaceIslandStrategy island = new SurfaceIslandStrategy();
+    private final OceanSurfaceStrategy ocean = new OceanSurfaceStrategy();
 
     @Override
     public BlockState blockAt(GenerationPlan plan, MaterialPalette palette, int x, int y, int z) {
+        if (plan.oceanFloorY() != null) return this.ocean.blockAt(plan, palette, x, y, z);
+        // Compatibility for existing saved instances, before waterline and seabed were stored separately.
         BlockState terrain = island.blockAt(plan, palette, x, y, z);
         if (!terrain.isAir()) {
             return terrain;

@@ -29,6 +29,10 @@ final class AutomaticEntryLocator {
         return targets.isEmpty() ? Optional.empty() : Optional.of(targets.getFirst().approach());
     }
 
+    static Approach surfaceFallback(GenerationPlan plan) {
+        return fallbackTargets(plan).getFirst().approach();
+    }
+
     /** Compatibility search used by focused entry safety tests and non-building callers. */
     static Optional<BlockPos> find(ServerLevel level, GenerationPlan plan, Predicate<BlockPos> safe) {
         for (ApproachTarget target : orderedTargets(level, plan)) {

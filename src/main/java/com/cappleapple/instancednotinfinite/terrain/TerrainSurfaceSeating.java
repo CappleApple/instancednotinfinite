@@ -7,6 +7,14 @@ public final class TerrainSurfaceSeating {
     private TerrainSurfaceSeating() {
     }
 
+    /** A measured authored foundation is stronger evidence than a generic flat sampling height. */
+    public static int seatToFoundation(EnvironmentType environment, int foundationReferenceY, int generatedSurfaceY) {
+        if (environment == EnvironmentType.SURFACE || environment == EnvironmentType.NETHER_LIKE) {
+            return Math.min(generatedSurfaceY, foundationReferenceY - 1);
+        }
+        return generatedSurfaceY;
+    }
+
     public static int seat(
         EnvironmentType environment,
         int structureMinY,

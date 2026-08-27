@@ -43,9 +43,14 @@ public final class VanillaDynamicLevelBackend implements DynamicLevelBackend {
         }
 
         GenerationPlan initialPlan = GenerationPlan.fallback(seed, definition.definition());
-        Holder<NoiseGeneratorSettings> noiseSettings = noiseSettings(server, definition.definition().environment());
+        EnvironmentType dimensionEnvironment = definition.definition().environment();
+        if (dimensionEnvironment == EnvironmentType.FLOATING_ISLAND) {
+            if (definition.biome().is(net.minecraft.tags.BiomeTags.IS_NETHER)) dimensionEnvironment = EnvironmentType.NETHER_LIKE;
+            else if (definition.biome().is(net.minecraft.tags.BiomeTags.IS_END)) dimensionEnvironment = EnvironmentType.END_LIKE;
+        }
+        Holder<NoiseGeneratorSettings> noiseSettings = noiseSettings(server, dimensionEnvironment);
         DungeonChunkGenerator generator = new DungeonChunkGenerator(definition.biome(), noiseSettings, initialPlan);
-        Holder<DimensionType> dimensionType = dimensionType(server, definition.definition().environment());
+        Holder<DimensionType> dimensionType = dimensionType(server, dimensionEnvironment);
         LevelStem stem = new LevelStem(dimensionType, generator);
         LevelStorageSource.LevelStorageAccess storage = storage(server);
         DerivedLevelData levelData = new DerivedLevelData(server.getWorldData(), server.getWorldData().overworldData());

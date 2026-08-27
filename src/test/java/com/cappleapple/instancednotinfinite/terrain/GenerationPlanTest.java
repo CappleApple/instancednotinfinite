@@ -7,6 +7,29 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class GenerationPlanTest {
     @Test
+    void measuredNetherFoundationPreventsPartialBurialBelowTheRoof() {
+        assertEquals(39, TerrainSurfaceSeating.seatToFoundation(EnvironmentType.NETHER_LIKE, 40, 63));
+    }
+
+    @Test
+    void measuredSurfaceFoundationAlsoCapsTheFlatSampleHeight() {
+        assertEquals(109, TerrainSurfaceSeating.seatToFoundation(EnvironmentType.SURFACE, 110, 127));
+    }
+
+    @Test
+    void measuredFoundationDoesNotRaiseTerrainThatWasAlreadyLower() {
+        assertEquals(32, TerrainSurfaceSeating.seatToFoundation(EnvironmentType.NETHER_LIKE, 40, 32));
+    }
+
+    @Test
+    void foundationCapDoesNotChangeWaterFloatingOrUndergroundStrategies() {
+        for (EnvironmentType environment : EnvironmentType.values()) {
+            if (environment == EnvironmentType.SURFACE || environment == EnvironmentType.NETHER_LIKE) continue;
+            assertEquals(63, TerrainSurfaceSeating.seatToFoundation(environment, 40, 63), environment.name());
+        }
+    }
+
+    @Test
     void lowersGroundThatWouldCoverAWholeNetherStructure() {
         assertEquals(48, TerrainSurfaceSeating.seat(EnvironmentType.NETHER_LIKE, 49, 155, 158));
     }

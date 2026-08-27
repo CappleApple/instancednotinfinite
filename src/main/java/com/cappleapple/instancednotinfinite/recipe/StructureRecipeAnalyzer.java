@@ -64,6 +64,22 @@ public final class StructureRecipeAnalyzer {
         RecipeInferenceSettings settings,
         RecipeIngredientExclusions exclusions
     ) {
+        return analyzeWithDependencies(
+            dungeonId, sourceId, configuredEnvironment, registries, resources, templateManager, settings, exclusions).profile();
+    }
+
+    public StructureRecipeAnalysis analyzeWithDependencies(
+        ResourceLocation dungeonId,
+        ResourceLocation sourceId,
+        EnvironmentType configuredEnvironment,
+        RegistryAccess registries,
+        ResourceManager resources,
+        StructureTemplateManager templateManager,
+        RecipeInferenceSettings settings,
+        RecipeIngredientExclusions exclusions
+    ) {
+        Set<ResourceLocation> resourceDependencies = new HashSet<>();
+        resourceDependencies.add(structureResource(sourceId));
         EnumSet<RecipeTheme> themes = EnumSet.noneOf(RecipeTheme.class);
         EnumSet<RecipeArchetype> archetypes = EnumSet.noneOf(RecipeArchetype.class);
         List<String> evidence = new ArrayList<>();
@@ -86,7 +102,8 @@ public final class StructureRecipeAnalyzer {
         }
 
         TemplateAnalysis templates = settings.paletteInference()
-            ? analyzeTemplates(sourceId, structure != null, encodedStructure, registries, resources, templateManager)
+            ? analyzeTemplates(sourceId, structure != null, encodedStructure, registries, resources, templateManager,
+                resourceDependencies)
             : TemplateAnalysis.empty();
         if (settings.paletteInference()) {
             if (templates.templatesAnalyzed() > 0) {
@@ -106,7 +123,7 @@ public final class StructureRecipeAnalyzer {
         double size = StructureSizeEstimator.fromVolume(
             templates.maximumVolume(), integer(encodedStructure, "max_distance_from_center"), integer(encodedStructure, "size"));
         double placementRarity = settings.rarityInference() && structure != null
-            ? estimateRarity(sourceId, registries, resources, evidence)
+            ? estimateRarity(sourceId, registries, resources, evidence, resourceDependencies)
             : 0.50D;
         if (!settings.rarityInference()) evidence.add("rarity inference disabled; neutral score used");
         boolean bossLike = archetypes.contains(RecipeArchetype.BOSS) || archetypes.contains(RecipeArchetype.ARENA);
@@ -121,9 +138,11 @@ public final class StructureRecipeAnalyzer {
         if (themes.isEmpty()) themes.add(RecipeTheme.OVERWORLD);
         boolean fallback = structure == null && templates.templatesAnalyzed() == 0;
         if (fallback) evidence.add("structure registry and matching templates exposed no analyzable data");
-        return new StructureRecipeProfile(
-            dungeonId, rarity, size, themes, archetypes, candidates, dimension, deduplicate(evidence),
-            templates.templatesAnalyzed() > 0, fallback);
+        return new StructureRecipeAnalysis(
+            new StructureRecipeProfile(
+                dungeonId, rarity, size, themes, archetypes, candidates, dimension, deduplicate(evidence),
+                templates.templatesAnalyzed() > 0, fallback),
+            resourceDependencies);
     }
 
     private static void analyzeBiomes(
@@ -187,7 +206,8 @@ public final class StructureRecipeAnalyzer {
         ResourceLocation structureId,
         RegistryAccess registries,
         ResourceManager resources,
-        List<String> evidence
+        List<String> evidence,
+        Set<ResourceLocation> resourceDependencies
     ) {
         Registry<StructureSet> sets = registries.registryOrThrow(Registries.STRUCTURE_SET);
         double best = Double.POSITIVE_INFINITY;
@@ -198,6 +218,7 @@ public final class StructureRecipeAnalyzer {
                 .filter(entry -> entry.structure().is(structureId)).toList();
             if (matching.isEmpty()) continue;
             matches++;
+            resourceDependencies.add(structureSetResource(setEntry.getKey().location()));
             int totalWeight = set.structures().stream().mapToInt(StructureSet.StructureSelectionEntry::weight).sum();
             int selectedWeight = matching.stream().mapToInt(StructureSet.StructureSelectionEntry::weight).sum();
             PlacementSettings placementSettings = loadPlacementSettings(setEntry.getKey().location(), resources);
@@ -267,7 +288,8 @@ public final class StructureRecipeAnalyzer {
         JsonElement encodedStructure,
         RegistryAccess registries,
         ResourceManager resources,
-        StructureTemplateManager manager
+        StructureTemplateManager manager,
+        Set<ResourceLocation> resourceDependencies
     ) {
         Map<ResourceLocation, Long> blocks = new HashMap<>();
         Set<ResourceLocation> analyzed = new HashSet<>();
@@ -283,6 +305,7 @@ public final class StructureRecipeAnalyzer {
             while (!pools.isEmpty() && visitedPools.size() < MAX_POOLS) {
                 ResourceLocation poolId = pools.remove();
                 if (!visitedPools.add(poolId)) continue;
+                resourceDependencies.add(templatePoolResource(poolId));
                 StructureTemplatePool pool = poolRegistry.get(poolId);
                 if (pool == null) continue;
                 JsonElement encoded = StructureTemplatePool.DIRECT_CODEC
@@ -293,6 +316,7 @@ public final class StructureRecipeAnalyzer {
             if (candidates.isEmpty()) break;
             ResourceLocation templateId = candidates.removeFirst();
             if (!analyzed.add(templateId)) continue;
+            resourceDependencies.add(structureTemplateResource(templateId));
             Optional<CompoundTag> template = loadTemplate(templateId, resources, manager);
             if (template.isEmpty()) continue;
             loadedTemplates++;
@@ -319,7 +343,7 @@ public final class StructureRecipeAnalyzer {
         if (manager != null) {
             available = manager.listTemplates().sorted().toList();
         } else {
-            available = resources.listResources("structures", id -> id.getPath().endsWith(".nbt")).keySet().stream()
+            available = resources.listResources("structure", id -> id.getPath().endsWith(".nbt")).keySet().stream()
                 .map(StructureRecipeAnalyzer::templateIdFromResource).filter(Optional::isPresent).map(Optional::get).sorted().toList();
         }
         if (registeredStructure) {
@@ -341,7 +365,7 @@ public final class StructureRecipeAnalyzer {
             return manager.get(templateId).map(template -> template.save(new CompoundTag()));
         }
         ResourceLocation resourceId = ResourceLocation.fromNamespaceAndPath(
-            templateId.getNamespace(), "structures/" + templateId.getPath() + ".nbt");
+            templateId.getNamespace(), "structure/" + templateId.getPath() + ".nbt");
         Optional<Resource> resource = resources.getResource(resourceId);
         if (resource.isEmpty()) return Optional.empty();
         try (InputStream stream = resource.get().open()) {
@@ -441,9 +465,29 @@ public final class StructureRecipeAnalyzer {
 
     private static Optional<ResourceLocation> templateIdFromResource(ResourceLocation resource) {
         String path = resource.getPath();
-        if (!path.startsWith("structures/") || !path.endsWith(".nbt")) return Optional.empty();
+        if (!path.startsWith("structure/") || !path.endsWith(".nbt")) return Optional.empty();
         return Optional.of(ResourceLocation.fromNamespaceAndPath(
-            resource.getNamespace(), path.substring("structures/".length(), path.length() - ".nbt".length())));
+            resource.getNamespace(), path.substring("structure/".length(), path.length() - ".nbt".length())));
+    }
+
+    static ResourceLocation structureResource(ResourceLocation structureId) {
+        return ResourceLocation.fromNamespaceAndPath(
+            structureId.getNamespace(), "worldgen/structure/" + structureId.getPath() + ".json");
+    }
+
+    static ResourceLocation structureSetResource(ResourceLocation structureSetId) {
+        return ResourceLocation.fromNamespaceAndPath(
+            structureSetId.getNamespace(), "worldgen/structure_set/" + structureSetId.getPath() + ".json");
+    }
+
+    static ResourceLocation templatePoolResource(ResourceLocation poolId) {
+        return ResourceLocation.fromNamespaceAndPath(
+            poolId.getNamespace(), "worldgen/template_pool/" + poolId.getPath() + ".json");
+    }
+
+    static ResourceLocation structureTemplateResource(ResourceLocation templateId) {
+        return ResourceLocation.fromNamespaceAndPath(
+            templateId.getNamespace(), "structure/" + templateId.getPath() + ".nbt");
     }
 
     private static void merge(

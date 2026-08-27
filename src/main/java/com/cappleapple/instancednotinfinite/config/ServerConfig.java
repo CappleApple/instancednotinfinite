@@ -36,6 +36,7 @@ public final class ServerConfig {
     public final ModConfigSpec.ConfigValue<List<? extends String>> excludedStructures;
     public final ModConfigSpec.ConfigValue<List<? extends String>> dungeonOverrides;
     public final ModConfigSpec.BooleanValue automaticRecipeGeneration;
+    public final ModConfigSpec.BooleanValue regenerateRecipeCache;
     public final ModConfigSpec.BooleanValue paletteInference;
     public final ModConfigSpec.BooleanValue biomeInference;
     public final ModConfigSpec.BooleanValue dimensionInference;
@@ -130,6 +131,11 @@ public final class ServerConfig {
         automaticRecipeGeneration = builder.comment(
                 "Generate a normal shaped recipe for each configured exact-dungeon catalyst that has no datapack recipe.")
             .define("automaticRecipeGeneration", true);
+        regenerateRecipeCache = builder.comment(
+                "Set this to true to discard the matching generated-recipe analysis cache on the next server start,",
+                "world load, config reload, or /dungeon reload. It resets itself to false after the cache is rebuilt successfully.",
+                "Portable cache files are written below config/instancednotinfinite/generated-recipes for modpack shipping.")
+            .define("regenerateRecipeCache", ProductionConfigDefaults.REGENERATE_RECIPE_CACHE);
         paletteInference = builder.define("paletteInference", true);
         biomeInference = builder.define("biomeInference", true);
         dimensionInference = builder.define("dimensionInference", true);
@@ -321,6 +327,26 @@ public final class ServerConfig {
             return mode != AnimationMode.RANDOM_MODE;
         } catch (IllegalArgumentException exception) {
             return false;
+        }
+    }
+
+    public boolean recipeCacheRegenerationRequested() {
+        try {
+            return regenerateRecipeCache.get();
+        } catch (IllegalStateException notLoadedYet) {
+            return regenerateRecipeCache.getDefault();
+        }
+    }
+
+    public void clearRecipeCacheRegenerationRequest() {
+        if (!recipeCacheRegenerationRequested()) return;
+        regenerateRecipeCache.set(false);
+        try {
+            regenerateRecipeCache.save();
+        } catch (RuntimeException exception) {
+            // Keep the on-disk request retryable if saving the one-shot reset fails.
+            regenerateRecipeCache.set(true);
+            throw exception;
         }
     }
 }

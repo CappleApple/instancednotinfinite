@@ -31,6 +31,11 @@ class ServerConfigDefaultsTest {
     }
 
     @Test
+    void recipeCacheRegenerationIsOneShotOptIn() {
+        assertEquals(false, ProductionConfigDefaults.REGENERATE_RECIPE_CACHE);
+    }
+
+    @Test
     void blazePowderCompletesPortalsByDefault() {
         assertEquals("minecraft:blaze_powder", ProductionConfigDefaults.PORTAL_COMPLETION_OFFERING);
     }

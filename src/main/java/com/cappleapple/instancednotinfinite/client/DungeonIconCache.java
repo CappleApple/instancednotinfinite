@@ -31,7 +31,7 @@ public final class DungeonIconCache {
     private DungeonIconCache() {
     }
 
-    /** Returns a finished icon or queues one and lets the caller draw its static fallback this frame. */
+    /** Returns a finished icon or queues one and lets the caller draw its portal-cube fallback this frame. */
     public static Optional<ResourceLocation> request(ResourceLocation dungeonId) {
         CachedIcon cached = CACHE.get(dungeonId);
         if (cached != null) return Optional.of(cached.texture());

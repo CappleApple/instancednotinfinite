@@ -5,6 +5,7 @@ import java.util.List;
 /** Shipping defaults kept dependency-free so release behavior can be asserted by the pure JVM suite. */
 public final class ProductionConfigDefaults {
     public static final List<String> STRUCTURES = List.of();
+    public static final boolean REGENERATE_RECIPE_CACHE = false;
     public static final int POOL_ITEM_SWAP_INTERVAL_SECONDS = 5;
     public static final String PORTAL_COMPLETION_OFFERING = "minecraft:blaze_powder";
     public static final int INSTANCE_OPEN_SECONDS = 300;

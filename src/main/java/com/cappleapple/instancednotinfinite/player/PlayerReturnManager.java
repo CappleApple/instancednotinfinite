@@ -91,6 +91,21 @@ public final class PlayerReturnManager {
         }
     }
 
+    public void returnFromVoid(ServerPlayer player) {
+        player.fallDistance = 0.0F;
+        player.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
+        if (!returnPlayer(player)) {
+            // Administrative teleports may bypass entrance capture; never leave that player in the void.
+            ServerLevel target = fallback(player.getServer());
+            BlockPos spawn = target.getSharedSpawnPos();
+            player.teleportTo(target, spawn.getX() + 0.5, spawn.getY() + 1.0, spawn.getZ() + 0.5,
+                target.getSharedSpawnAngle(), 0.0F);
+        }
+        player.fallDistance = 0.0F;
+        player.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
+        player.setPortalCooldown();
+    }
+
     private static ServerLevel fallback(MinecraftServer server) {
         ResourceLocation configured = ResourceLocation.tryParse(ServerConfig.INSTANCE.fallbackReturnDimension.get());
         if (configured != null) {

@@ -1,0 +1,8 @@
+{
+  "type": "instancednotinfinite:placement_test",
+  "mode": "seabed",
+  "biomes": "minecraft:deep_ocean",
+  "step": "surface_structures",
+  "terrain_adaptation": "none",
+  "spawn_overrides": {}
+}

@@ -20,6 +20,12 @@ public record DungeonDefinition(
     boolean allowNaturalMobSpawning,
     ReentryPolicy reentry
 ) {
+    public DungeonDefinition withEnvironment(EnvironmentType type) {
+        return new DungeonDefinition(id, formatVersion, structure, structureKind, weight, biomes, height,
+            type, type == EnvironmentType.CUSTOM ? customEnvironment : null, terrain, portal, entry,
+            placement, decoration, allowNaturalMobSpawning, reentry);
+    }
+
     public DungeonDefinition {
         if (!DefinitionParser.isResourceId(id)) {
             throw new IllegalArgumentException("invalid dungeon id: " + id);

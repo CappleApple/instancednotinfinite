@@ -31,6 +31,7 @@ public final class ServerEvents {
         gameBus.addListener(ServerEvents::serverStarted);
         gameBus.addListener(ServerEvents::serverTick);
         gameBus.addListener(ServerEvents::playerTick);
+        gameBus.addListener(ServerEvents::playerSafetyTick);
         gameBus.addListener(ServerEvents::playerLogin);
         gameBus.addListener(ServerEvents::mobSpawnPositionCheck);
         gameBus.addListener(ServerEvents::serverStopping);
@@ -71,8 +72,15 @@ public final class ServerEvents {
 
     private static void playerTick(PlayerTickEvent.Post event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
+        if (DungeonInstanceManager.current().map(manager -> manager.returnFallenPlayer(player)).orElse(false)) return;
         DungeonManifestationManager.current().ifPresent(manager -> manager.tryActivatePortal(player));
         DungeonInstanceManager.current().ifPresent(manager -> manager.tryActivateReturnPortal(player));
+    }
+
+    private static void playerSafetyTick(PlayerTickEvent.Pre event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            DungeonInstanceManager.current().ifPresent(manager -> manager.returnFallenPlayer(player));
+        }
     }
 
     private static void playerLogin(PlayerEvent.PlayerLoggedInEvent event) {

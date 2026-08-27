@@ -4,7 +4,7 @@
   "package": "com.cappleapple.instancednotinfinite.mixin",
   "plugin": "com.cappleapple.instancednotinfinite.mixin.DistantHorizonsMixinPlugin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": ["MinecraftServerAccessor", "compat.DistantHorizonsServerProxyMixin"],
+  "mixins": ["MinecraftServerAccessor", "LevelChunkPlacementCaptureMixin", "compat.DistantHorizonsServerProxyMixin"],
   "client": [
     "compat.DistantHorizonsClientApiMixin",
     "compat.DistantHorizonsClientProxyMixin",

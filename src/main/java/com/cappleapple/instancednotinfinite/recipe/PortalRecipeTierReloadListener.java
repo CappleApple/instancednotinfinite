@@ -12,7 +12,6 @@ import net.minecraft.server.ReloadableServerResources;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener;
 import net.minecraft.util.profiling.ProfilerFiller;
-import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
 import net.neoforged.neoforge.common.conditions.ICondition;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
@@ -41,11 +40,16 @@ public final class PortalRecipeTierReloadListener extends SimpleJsonResourceRelo
         PortalRecipeGenerationService.INSTANCE.updateTiers(parsed.tiers());
         DungeonDefinitionRegistry.INSTANCE.rebuildAutomatic(this.registries);
         var currentServer = ServerLifecycleHooks.getCurrentServer();
-        StructureTemplateManager templates = currentServer == null ? null : currentServer.getStructureManager();
-        PortalRecipeGenerationService.INSTANCE.rebuild(
-            this.registries, manager, this.serverResources.getRecipeManager(), templates,
-            ItemTagLookups.staged(this.conditionContext),
-            currentServer == null ? 0L : currentServer.getWorldData().worldGenOptions().seed());
+        if (currentServer == null) {
+            // Initial data loading precedes the server config and StructureTemplateManager. ServerStarted rebuilds
+            // the catalogue and recipes once with both available, avoiding the same expensive analysis twice.
+            InstancedNotInfinite.LOGGER.info(
+                "Deferred generated portal recipe installation until server start so the persistent cache can use the loaded world config");
+        } else {
+            PortalRecipeGenerationService.INSTANCE.rebuild(
+                this.registries, manager, this.serverResources.getRecipeManager(), currentServer.getStructureManager(),
+                ItemTagLookups.staged(this.conditionContext), currentServer.getWorldData().worldGenOptions().seed());
+        }
         InstancedNotInfinite.LOGGER.info("Loaded {} portal recipe cost tiers ({} rejected)",
             parsed.tiers().size(), parsed.diagnostics().size());
     }
