@@ -88,6 +88,18 @@ public final class ServerConfig {
     public final ModConfigSpec.IntValue sourcePortalExitOffsetBlocks;
     public final ModConfigSpec.IntValue portalLifetimeMinutes;
     public final ModConfigSpec.IntValue portalHudDistance;
+    public final ModConfigSpec.ConfigValue<String> generationSound;
+    public final ModConfigSpec.DoubleValue generationSoundVolume;
+    public final ModConfigSpec.ConfigValue<String> portalOpenSound;
+    public final ModConfigSpec.DoubleValue portalOpenSoundVolume;
+    public final ModConfigSpec.ConfigValue<String> portalAmbientSound;
+    public final ModConfigSpec.DoubleValue portalAmbientSoundVolume;
+    public final ModConfigSpec.ConfigValue<String> portalWalkThroughSound;
+    public final ModConfigSpec.DoubleValue portalWalkThroughSoundVolume;
+    public final ModConfigSpec.ConfigValue<String> portalClosingSound;
+    public final ModConfigSpec.DoubleValue portalClosingSoundVolume;
+    public final ModConfigSpec.ConfigValue<String> portalClosedSound;
+    public final ModConfigSpec.DoubleValue portalClosedSoundVolume;
     public final ModConfigSpec.ConfigValue<String> portalCompletionOffering;
     public final ModConfigSpec.EnumValue<CatalystConsumptionPolicy> catalystConsumptionPolicy;
     public final ModConfigSpec.BooleanValue refundOnFailure;
@@ -303,6 +315,31 @@ public final class ServerConfig {
         portalHudDistance = builder.comment(
                 "Maximum distance in blocks for the dungeon icon, name, and portal-close countdown while aiming at a portal.")
             .defineInRange("portalHudDistance", 16, 1, 128);
+        generationSound = builder.comment(
+                "Sound event played at the manifestation origin while the dungeon is generating and materializing.")
+            .define("generationSound", ProductionConfigDefaults.GENERATION_SOUND, ServerConfig::isResourceId);
+        generationSoundVolume = builder.comment("Playback volume for generationSound; 0 disables it without changing the sound ID.")
+            .defineInRange("generationSoundVolume", ProductionConfigDefaults.GENERATION_SOUND_VOLUME, 0.0D, 1.0D);
+        portalOpenSound = builder.comment("Sound event played when portal growth begins.")
+            .define("portalOpenSound", ProductionConfigDefaults.PORTAL_OPEN_SOUND, ServerConfig::isResourceId);
+        portalOpenSoundVolume = builder.comment("Playback volume for portalOpenSound; 0 disables it without changing the sound ID.")
+            .defineInRange("portalOpenSoundVolume", ProductionConfigDefaults.PORTAL_OPEN_SOUND_VOLUME, 0.0D, 1.0D);
+        portalAmbientSound = builder.comment("Ambient sound event played periodically by loaded entry and return portals.")
+            .define("portalAmbientSound", ProductionConfigDefaults.PORTAL_AMBIENT_SOUND, ServerConfig::isResourceId);
+        portalAmbientSoundVolume = builder.comment("Playback volume for portalAmbientSound; 0 disables it without changing the sound ID.")
+            .defineInRange("portalAmbientSoundVolume", ProductionConfigDefaults.PORTAL_AMBIENT_SOUND_VOLUME, 0.0D, 1.0D);
+        portalWalkThroughSound = builder.comment("Sound event played to a traveler and around the portal after a successful traversal.")
+            .define("portalWalkThroughSound", ProductionConfigDefaults.PORTAL_WALK_THROUGH_SOUND, ServerConfig::isResourceId);
+        portalWalkThroughSoundVolume = builder.comment("Playback volume for portalWalkThroughSound; 0 disables it without changing the sound ID.")
+            .defineInRange("portalWalkThroughSoundVolume", ProductionConfigDefaults.PORTAL_WALK_THROUGH_SOUND_VOLUME, 0.0D, 1.0D);
+        portalClosingSound = builder.comment("Sound event played when the portal begins closing.")
+            .define("portalClosingSound", ProductionConfigDefaults.PORTAL_CLOSING_SOUND, ServerConfig::isResourceId);
+        portalClosingSoundVolume = builder.comment("Playback volume for portalClosingSound; 0 disables it without changing the sound ID.")
+            .defineInRange("portalClosingSoundVolume", ProductionConfigDefaults.PORTAL_CLOSING_SOUND_VOLUME, 0.0D, 1.0D);
+        portalClosedSound = builder.comment("Sound event played after the portal finishes closing and is removed.")
+            .define("portalClosedSound", ProductionConfigDefaults.PORTAL_CLOSED_SOUND, ServerConfig::isResourceId);
+        portalClosedSoundVolume = builder.comment("Playback volume for portalClosedSound; 0 disables it without changing the sound ID.")
+            .defineInRange("portalClosedSoundVolume", ProductionConfigDefaults.PORTAL_CLOSED_SOUND_VOLUME, 0.0D, 1.0D);
         portalCompletionOffering = builder.comment(
                 "Item ID or #item_tag consumed when thrown into either endpoint of an open portal.",
                 "A matching offering marks that portal's exact dungeon instance complete.")

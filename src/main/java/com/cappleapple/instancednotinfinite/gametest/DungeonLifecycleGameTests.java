@@ -2,6 +2,7 @@ package com.cappleapple.instancednotinfinite.gametest;
 
 import com.cappleapple.instancednotinfinite.InstancedNotInfinite;
 import com.cappleapple.instancednotinfinite.backend.VanillaDynamicLevelBackend;
+import com.cappleapple.instancednotinfinite.config.ProductionConfigDefaults;
 import com.cappleapple.instancednotinfinite.config.ServerConfig;
 import com.cappleapple.instancednotinfinite.definition.BiomeRule;
 import com.cappleapple.instancednotinfinite.definition.AutomaticDungeonMetadata;
@@ -56,6 +57,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
@@ -91,6 +93,22 @@ public final class DungeonLifecycleGameTests {
     }
 
     @GameTest(templateNamespace = "minecraft", template = TEST_TEMPLATE)
+    public static void vanillaPortalSoundDefaultsResolve(GameTestHelper helper) {
+        for (String raw : List.of(
+            ProductionConfigDefaults.GENERATION_SOUND,
+            ProductionConfigDefaults.PORTAL_OPEN_SOUND,
+            ProductionConfigDefaults.PORTAL_AMBIENT_SOUND,
+            ProductionConfigDefaults.PORTAL_WALK_THROUGH_SOUND,
+            ProductionConfigDefaults.PORTAL_CLOSING_SOUND,
+            ProductionConfigDefaults.PORTAL_CLOSED_SOUND
+        )) {
+            ResourceLocation id = ResourceLocation.parse(raw);
+            helper.assertTrue(BuiltInRegistries.SOUND_EVENT.containsKey(id), "Missing vanilla sound event " + id);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = "minecraft", template = TEST_TEMPLATE)
     public static void automaticPortalRecipeIsAStandardTargetedRecipe(GameTestHelper helper) {
         ResourceLocation dungeon = ResourceLocation.parse("instancednotinfinite:surface_igloo");
         var report = PortalRecipeGenerationService.INSTANCE.report(dungeon).orElse(null);
@@ -108,12 +126,13 @@ public final class DungeonLifecycleGameTests {
     }
 
     @GameTest(templateNamespace = "minecraft", template = TEST_TEMPLATE)
-    public static void explicitDatapackRecipeWinsAndProfileCacheRebuilds(GameTestHelper helper) {
+    public static void explicitDatapackRecipeWinsWithoutAutomaticAnalysis(GameTestHelper helper) {
         ResourceLocation dungeon = ResourceLocation.parse("instancednotinfinite:cave_mineshaft");
         var service = PortalRecipeGenerationService.INSTANCE;
-        var before = service.profile(dungeon).orElse(null);
         var report = service.report(dungeon).orElse(null);
-        helper.assertTrue(before != null && report != null, "Datapack portal recipe analysis was not cached");
+        helper.assertTrue(report != null, "Datapack portal recipe was not reported");
+        helper.assertTrue(service.profile(dungeon).isEmpty(),
+            "Predefined datapack recipe still triggered automatic structure analysis");
         helper.assertValueEqual(report.source(), RecipeSource.DATAPACK,
             "Explicit normal datapack recipe did not take precedence");
         helper.assertValueEqual(report.recipeId().orElseThrow(),
@@ -125,9 +144,42 @@ public final class DungeonLifecycleGameTests {
             InstanceLifecycleOverrides.of(900, 120, -1),
             "Explicit recipe result lost its instance lifecycle component");
         DungeonInstanceManager.get(helper.getLevel().getServer()).rebuildCatalogue();
-        var after = service.profile(dungeon).orElse(null);
-        helper.assertTrue(after != null && after != before,
-            "Recipe profile cache was not invalidated during catalogue/config rebuild");
+        helper.assertTrue(service.profile(dungeon).isEmpty(),
+            "Catalogue/config rebuild analyzed a target that still had a predefined datapack recipe");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = "minecraft", template = TEST_TEMPLATE)
+    public static void explicitPoolRecipeSkipsMemberAnalysis(GameTestHelper helper) {
+        ResourceLocation poolId = ResourceLocation.parse("instancednotinfinite:predefined_recipe_test_pool");
+        ResourceLocation igloo = ResourceLocation.withDefaultNamespace("igloo");
+        ResourceLocation mineshaft = ResourceLocation.withDefaultNamespace("mineshaft");
+        ResourceLocation predefinedRecipe = ResourceLocation.parse(
+            "instancednotinfinite:explicit_recipe_test_pool_portal");
+        DungeonInstanceManager instances = DungeonInstanceManager.get(helper.getLevel().getServer());
+        try {
+            ServerConfig.INSTANCE.structures.set(List.of());
+            ServerConfig.INSTANCE.structureTags.set(List.of(poolId.toString()));
+            ServerConfig.INSTANCE.poolItemOnlyStructureTags.set(List.of(poolId.toString()));
+            ServerConfig.INSTANCE.excludedAutomaticRecipeTargets.set(List.of());
+            instances.rebuildCatalogue();
+
+            helper.assertTrue(helper.getLevel().getRecipeManager().byKey(predefinedRecipe).isPresent(),
+                "Predefined structure-pool recipe was removed during generated recipe installation");
+            helper.assertTrue(helper.getLevel().getRecipeManager()
+                    .byKey(PortalRecipeGenerationService.generatedPoolId(poolId)).isEmpty(),
+                "Structure pool with a predefined recipe still received an automatic recipe");
+            helper.assertTrue(PortalRecipeGenerationService.INSTANCE.profile(igloo).isEmpty(),
+                "Pool-only igloo was analyzed even though the pool recipe was predefined");
+            helper.assertTrue(PortalRecipeGenerationService.INSTANCE.profile(mineshaft).isEmpty(),
+                "Pool-only mineshaft was analyzed even though the pool recipe was predefined");
+        } finally {
+            ServerConfig.INSTANCE.structures.set(List.of());
+            ServerConfig.INSTANCE.structureTags.set(List.of());
+            ServerConfig.INSTANCE.poolItemOnlyStructureTags.set(List.of());
+            ServerConfig.INSTANCE.excludedAutomaticRecipeTargets.set(List.of());
+            instances.rebuildCatalogue();
+        }
         helper.succeed();
     }
 

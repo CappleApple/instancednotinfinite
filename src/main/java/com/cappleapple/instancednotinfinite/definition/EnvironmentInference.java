@@ -40,6 +40,9 @@ public final class EnvironmentInference {
         if (evidence.generationStep().equalsIgnoreCase("strongholds")) {
             return new Classification(EnvironmentType.UNDERGROUND, "generation step is STRONGHOLDS");
         }
+        if (evidence.generationStep().equalsIgnoreCase("underground_decoration")) {
+            return new Classification(EnvironmentType.UNDERGROUND, "generation step is UNDERGROUND_DECORATION");
+        }
         if (evidence.generationStep().equalsIgnoreCase("underground_structures")) {
             return new Classification(EnvironmentType.CAVE, "generation step is UNDERGROUND_STRUCTURES");
         }

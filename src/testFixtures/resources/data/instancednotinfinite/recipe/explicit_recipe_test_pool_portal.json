@@ -1,0 +1,23 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "E": { "item": "minecraft:ender_pearl" },
+    "G": { "item": "minecraft:gold_ingot" }
+  },
+  "pattern": [
+    "GGG",
+    "GEG",
+    "GGG"
+  ],
+  "result": {
+    "id": "instancednotinfinite:manifestation_catalyst",
+    "count": 1,
+    "components": {
+      "instancednotinfinite:manifestation_target": {
+        "kind": "structure_pool",
+        "id": "instancednotinfinite:predefined_recipe_test_pool"
+      }
+    }
+  }
+}

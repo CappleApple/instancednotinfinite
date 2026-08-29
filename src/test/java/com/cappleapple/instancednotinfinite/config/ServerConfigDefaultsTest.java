@@ -41,6 +41,26 @@ class ServerConfigDefaultsTest {
     }
 
     @Test
+    void portalPresentationUsesThemedVanillaSoundsByDefault() {
+        assertEquals("minecraft:block.beacon.ambient", ProductionConfigDefaults.GENERATION_SOUND);
+        assertEquals("minecraft:block.beacon.activate", ProductionConfigDefaults.PORTAL_OPEN_SOUND);
+        assertEquals("minecraft:block.trial_spawner.ambient_ominous", ProductionConfigDefaults.PORTAL_AMBIENT_SOUND);
+        assertEquals("minecraft:block.conduit.activate", ProductionConfigDefaults.PORTAL_WALK_THROUGH_SOUND);
+        assertEquals("minecraft:block.beacon.deactivate", ProductionConfigDefaults.PORTAL_CLOSING_SOUND);
+        assertEquals("minecraft:block.fire.extinguish", ProductionConfigDefaults.PORTAL_CLOSED_SOUND);
+    }
+
+    @Test
+    void portalSoundVolumesUseCalibratedDefaults() {
+        assertEquals(0.25D, ProductionConfigDefaults.GENERATION_SOUND_VOLUME);
+        assertEquals(0.4D, ProductionConfigDefaults.PORTAL_OPEN_SOUND_VOLUME);
+        assertEquals(0.1D, ProductionConfigDefaults.PORTAL_AMBIENT_SOUND_VOLUME);
+        assertEquals(1.0D, ProductionConfigDefaults.PORTAL_WALK_THROUGH_SOUND_VOLUME);
+        assertEquals(0.25D, ProductionConfigDefaults.PORTAL_CLOSING_SOUND_VOLUME);
+        assertEquals(0.25D, ProductionConfigDefaults.PORTAL_CLOSED_SOUND_VOLUME);
+    }
+
+    @Test
     void portalTooltipIntegrationsAreAvailableByDefault() {
         assertEquals(true, ProductionConfigDefaults.JADE_INTEGRATION);
         assertEquals(true, ProductionConfigDefaults.BUILT_IN_PORTAL_TOOLTIPS);

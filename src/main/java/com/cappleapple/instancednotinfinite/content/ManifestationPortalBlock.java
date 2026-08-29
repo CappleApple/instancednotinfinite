@@ -2,12 +2,15 @@ package com.cappleapple.instancednotinfinite.content;
 
 import com.cappleapple.instancednotinfinite.manifestation.DungeonManifestationManager;
 import com.cappleapple.instancednotinfinite.manifestation.ManifestationState;
+import com.cappleapple.instancednotinfinite.manifestation.PortalSounds;
 import com.cappleapple.instancednotinfinite.instance.DungeonInstanceManager;
 import com.cappleapple.instancednotinfinite.instance.InstanceId;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
@@ -57,6 +60,13 @@ public final class ManifestationPortalBlock extends BaseEntityBlock {
     }
 
     @Override
+    public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
+        if (random.nextInt(100) == 0) {
+            PortalSounds.playAmbient(level, pos, random);
+        }
+    }
+
+    @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hitResult) {
         if (player instanceof ServerPlayer serverPlayer) {
             tryActivate(level, pos, serverPlayer);
@@ -69,22 +79,24 @@ public final class ManifestationPortalBlock extends BaseEntityBlock {
         if (level.isClientSide() || !(level.getBlockEntity(pos) instanceof ManifestationPortalBlockEntity portal)) return;
         if (player.isOnPortalCooldown()) return;
         if (portal.endpoint() == ManifestationPortalBlockEntity.Endpoint.RETURN) {
-            portal.instanceId().ifPresent(id -> returnFromInstance(player, id));
+            portal.instanceId().ifPresent(id -> returnFromInstance(player, id, pos));
             return;
         }
         portal.manifestationId().flatMap(id -> DungeonManifestationManager.get(player.getServer()).get(id)).ifPresent(value -> {
             if (value.state() != ManifestationState.PORTAL_OPEN) return;
             try {
+                ServerLevel departedLevel = player.serverLevel();
                 DungeonInstanceManager.get(player.getServer()).enterFromPortal(
                     player, value.instanceId(), pos, portal.rotationDegrees());
                 player.setPortalCooldown();
+                PortalSounds.playWalkThrough(player, departedLevel, pos);
             } catch (Exception exception) {
                 player.sendSystemMessage(Component.literal("Portal is not ready: " + exception.getMessage()));
             }
         });
     }
 
-    private static void returnFromInstance(ServerPlayer player, java.util.UUID rawInstanceId) {
+    private static void returnFromInstance(ServerPlayer player, java.util.UUID rawInstanceId, BlockPos portalPos) {
         DungeonInstanceManager manager = DungeonInstanceManager.get(player.getServer());
         InstanceId instanceId = new InstanceId(rawInstanceId);
         boolean correctDimension = manager.get(instanceId)
@@ -94,8 +106,10 @@ public final class ManifestationPortalBlock extends BaseEntityBlock {
             player.sendSystemMessage(Component.literal("This return portal is not bound to the current dungeon instance"));
             return;
         }
+        ServerLevel departedLevel = player.serverLevel();
         if (manager.leave(player)) {
             player.setPortalCooldown();
+            PortalSounds.playWalkThrough(player, departedLevel, portalPos);
         } else {
             player.sendSystemMessage(Component.literal("No saved return location is available for this dungeon visit"));
         }

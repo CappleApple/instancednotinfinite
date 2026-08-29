@@ -15,6 +15,18 @@ public final class ProductionConfigDefaults {
     public static final double PORTAL_MINIMUM_HEIGHT = 2.0D;
     public static final double PORTAL_DEPTH = 0.35D;
     public static final double PORTAL_MINIMUM_DEPTH = PORTAL_DEPTH;
+    public static final String GENERATION_SOUND = "minecraft:block.beacon.ambient";
+    public static final double GENERATION_SOUND_VOLUME = 0.25D;
+    public static final String PORTAL_OPEN_SOUND = "minecraft:block.beacon.activate";
+    public static final double PORTAL_OPEN_SOUND_VOLUME = 0.4D;
+    public static final String PORTAL_AMBIENT_SOUND = "minecraft:block.trial_spawner.ambient_ominous";
+    public static final double PORTAL_AMBIENT_SOUND_VOLUME = 0.1D;
+    public static final String PORTAL_WALK_THROUGH_SOUND = "minecraft:block.conduit.activate";
+    public static final double PORTAL_WALK_THROUGH_SOUND_VOLUME = 1.0D;
+    public static final String PORTAL_CLOSING_SOUND = "minecraft:block.beacon.deactivate";
+    public static final double PORTAL_CLOSING_SOUND_VOLUME = 0.25D;
+    public static final String PORTAL_CLOSED_SOUND = "minecraft:block.fire.extinguish";
+    public static final double PORTAL_CLOSED_SOUND_VOLUME = 0.25D;
     public static final boolean JADE_INTEGRATION = true;
     public static final boolean BUILT_IN_PORTAL_TOOLTIPS = true;
 

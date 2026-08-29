@@ -57,7 +57,8 @@ public final class PortalRecipeCache {
         ResourceManager resources,
         StructureTemplateManager templates,
         RecipeInferenceSettings settings,
-        RecipeIngredientExclusions exclusions
+        RecipeIngredientExclusions exclusions,
+        Collection<ResourceLocation> analysisTargets
     ) {
         List<String> inputs = new ArrayList<>();
         inputs.add("format=" + FORMAT_VERSION);
@@ -70,7 +71,7 @@ public final class PortalRecipeCache {
 
         Registry<Structure> structures = registries.registryOrThrow(Registries.STRUCTURE);
         Set<ResourceLocation> sourceIds = new LinkedHashSet<>();
-        for (ResourceLocation dungeonId : DungeonDefinitionRegistry.INSTANCE.ids()) {
+        for (ResourceLocation dungeonId : analysisTargets.stream().sorted().toList()) {
             DungeonDefinition definition = DungeonDefinitionRegistry.INSTANCE.get(dungeonId).orElseThrow();
             ResourceLocation sourceId = ResourceLocation.parse(definition.structure());
             sourceIds.add(sourceId);

@@ -41,6 +41,14 @@ class EnvironmentInferenceTest {
     }
 
     @Test
+    void undergroundDecorationStepUsesUndergroundHandling() {
+        assertEquals(
+            EnvironmentType.UNDERGROUND,
+            classify(false, false, false, "beard_thin", "underground_decoration", -30),
+            "Integrated Cataclysm's Ancient Factory override must use the enclosed underground terrain and entry pipeline");
+    }
+
+    @Test
     void lowConfidenceFallsBackSafelyToSurface() {
         assertEquals(EnvironmentType.SURFACE, classify(false, false, false, "none", "surface_structures"));
     }

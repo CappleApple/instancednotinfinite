@@ -61,35 +61,60 @@ public final class PortalRecipeGenerationService {
         ItemTagLookup tags,
         long worldSeed
     ) {
-        RecipeInferenceSettings settings = RecipeInferenceSettings.configured();
-        RecipeIngredientExclusions ingredientExclusions = RecipeIngredientExclusions.configured(registries);
-        RecipeTargetExclusions targetExclusions = RecipeTargetExclusions.configured(registries);
-        boolean forcedRegeneration = ServerConfig.INSTANCE.recipeCacheRegenerationRequested();
-        String cacheFingerprint = null;
-        Optional<PortalRecipeCache.Loaded> loadedCache = Optional.empty();
-        try {
-            cacheFingerprint = this.cache.inputFingerprint(registries, resources, templates, settings, ingredientExclusions);
-            if (forcedRegeneration) {
-                InstancedNotInfinite.LOGGER.info(
-                    "Generated recipe cache regeneration was requested; structure analysis will run once");
-            } else {
-                loadedCache = this.cache.load(cacheFingerprint, DungeonDefinitionRegistry.INSTANCE.ids(), resources);
-            }
-        } catch (RuntimeException exception) {
-            InstancedNotInfinite.LOGGER.warn(
-                "Could not prepare the generated recipe cache; structure analysis will run without caching: {}",
-                exception.getMessage());
-        }
-        Map<ResourceLocation, StructureRecipeProfile> cachedProfiles = loadedCache
-            .map(PortalRecipeCache.Loaded::profiles).orElse(Map.of());
-        boolean cacheHit = loadedCache.isPresent();
-        Set<ResourceLocation> resourceDependencies = new HashSet<>();
         boolean sameManager = manager == this.lastManager;
         Map<ResourceLocation, RecipeHolder<?>> base = new LinkedHashMap<>();
         manager.getRecipes().stream().sorted(java.util.Comparator.comparing(RecipeHolder::id)).forEach(recipe -> {
             if (!sameManager || !this.generatedIds.contains(recipe.id())) base.put(recipe.id(), recipe);
         });
         Map<ManifestationTargetComponent, ResourceLocation> explicit = explicitRecipes(base.values(), registries);
+        RecipeInferenceSettings settings = RecipeInferenceSettings.configured();
+        RecipeIngredientExclusions ingredientExclusions = RecipeIngredientExclusions.configured(registries);
+        RecipeTargetExclusions targetExclusions = RecipeTargetExclusions.configured(registries);
+        Set<ResourceLocation> dungeonIds = Set.copyOf(DungeonDefinitionRegistry.INSTANCE.ids());
+        Set<ResourceLocation> predefinedDungeons = dungeonIds.stream()
+            .filter(id -> explicit.containsKey(ManifestationTargetComponent.dungeon(id)))
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        Set<ResourceLocation> explicitOverrides = dungeonIds.stream()
+            .filter(id -> DungeonDefinitionRegistry.INSTANCE.configuredOverride(id)
+                .filter(PortalRecipeGenerationService::hasExplicitRecipeOverride).isPresent())
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        Set<ResourceLocation> poolOnlyDungeons = dungeonIds.stream()
+            .filter(DungeonDefinitionRegistry.INSTANCE::poolOnlySuppresses)
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        Set<ResourceLocation> activePoolMembers = DungeonDefinitionRegistry.INSTANCE.structurePools().entrySet().stream()
+            .filter(entry -> !explicit.containsKey(ManifestationTargetComponent.structurePool(entry.getKey())))
+            .filter(entry -> !targetExclusions.excludesPool(entry.getKey()))
+            .flatMap(entry -> entry.getValue().stream())
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        Set<ResourceLocation> analysisTargets = PortalRecipeAnalysisPlanner.automaticAnalysisTargets(
+            dungeonIds, predefinedDungeons, explicitOverrides, targetExclusions.dungeonIds(),
+            poolOnlyDungeons, activePoolMembers, settings.automaticRecipeGeneration());
+        boolean forcedRegeneration = ServerConfig.INSTANCE.recipeCacheRegenerationRequested();
+        String cacheFingerprint = null;
+        Optional<PortalRecipeCache.Loaded> loadedCache = Optional.empty();
+        if (analysisTargets.isEmpty()) {
+            InstancedNotInfinite.LOGGER.info(
+                "Skipped generated recipe cache preparation because every portal target already has a predefined recipe or automatic generation is suppressed");
+        } else {
+            try {
+                cacheFingerprint = this.cache.inputFingerprint(
+                    registries, resources, templates, settings, ingredientExclusions, analysisTargets);
+                if (forcedRegeneration) {
+                    InstancedNotInfinite.LOGGER.info(
+                        "Generated recipe cache regeneration was requested; structure analysis will run once");
+                } else {
+                    loadedCache = this.cache.load(cacheFingerprint, analysisTargets, resources);
+                }
+            } catch (RuntimeException exception) {
+                InstancedNotInfinite.LOGGER.warn(
+                    "Could not prepare the generated recipe cache; structure analysis will run without caching: {}",
+                    exception.getMessage());
+            }
+        }
+        Map<ResourceLocation, StructureRecipeProfile> cachedProfiles = loadedCache
+            .map(PortalRecipeCache.Loaded::profiles).orElse(Map.of());
+        boolean cacheHit = loadedCache.isPresent();
+        Set<ResourceLocation> resourceDependencies = new HashSet<>();
         Map<ResourceLocation, StructureRecipeProfile> nextProfiles = new LinkedHashMap<>();
         Map<ResourceLocation, PortalRecipeReport> nextReports = new LinkedHashMap<>();
         Map<ResourceLocation, RecipeHolder<?>> generated = new LinkedHashMap<>();
@@ -98,6 +123,34 @@ public final class PortalRecipeGenerationService {
         for (ResourceLocation dungeonId : DungeonDefinitionRegistry.INSTANCE.ids()) {
             DungeonDefinition definition = DungeonDefinitionRegistry.INSTANCE.get(dungeonId).orElseThrow();
             DungeonOverride override = DungeonDefinitionRegistry.INSTANCE.configuredOverride(dungeonId).orElse(null);
+            ResourceLocation explicitRecipe = explicit.get(ManifestationTargetComponent.dungeon(dungeonId));
+            if (explicitRecipe != null) {
+                nextReports.put(dungeonId, new PortalRecipeReport(
+                    dungeonId, RecipeSource.DATAPACK, skippedProfile(dungeonId,
+                        "Automatic analysis skipped because a predefined datapack recipe targets this catalyst"),
+                    Optional.of(explicitRecipe), Optional.empty(), Optional.empty(), Optional.empty(),
+                    Optional.empty(), Optional.empty(), List.of()));
+                continue;
+            }
+            if (!analysisTargets.contains(dungeonId)) {
+                List<String> warnings = new ArrayList<>();
+                RecipeSource source;
+                if (!settings.automaticRecipeGeneration()) {
+                    source = RecipeSource.DISABLED;
+                } else if (DungeonDefinitionRegistry.INSTANCE.poolOnlySuppresses(dungeonId)) {
+                    source = RecipeSource.POOL_ONLY;
+                    warnings.add("exact catalyst suppressed by poolItemOnlyStructureTags");
+                } else {
+                    source = RecipeSource.CONFIG_EXCLUDED;
+                    warnings.add("automatic recipe suppressed by excludedAutomaticRecipeTargets");
+                }
+                nextReports.put(dungeonId, new PortalRecipeReport(
+                    dungeonId, source, skippedProfile(dungeonId,
+                        "Automatic analysis skipped because this target does not need a generated recipe"),
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                    Optional.empty(), Optional.empty(), warnings));
+                continue;
+            }
             ResourceLocation sourceId = ResourceLocation.parse(definition.structure());
             StructureRecipeProfile resolvedProfile = cachedProfiles.get(dungeonId);
             if (resolvedProfile == null) {
@@ -120,18 +173,11 @@ public final class PortalRecipeGenerationService {
                 return emergencyTier();
             });
 
-            ResourceLocation explicitRecipe = explicit.get(ManifestationTargetComponent.dungeon(dungeonId));
             boolean explicitOverride = hasExplicitRecipeOverride(override);
             RecipeSource source = PortalRecipePrecedence.choose(
-                explicitRecipe != null, explicitOverride, settings.automaticRecipeGeneration(), profile.fallback());
+                false, explicitOverride, settings.automaticRecipeGeneration(), profile.fallback());
             if (source == RecipeSource.GENERIC_FALLBACK) {
                 warnings.add("structure or template data was unavailable; generic inference fallback was used");
-            }
-            if (source == RecipeSource.DATAPACK) {
-                nextReports.put(dungeonId, new PortalRecipeReport(
-                    dungeonId, source, profile, Optional.of(explicitRecipe), Optional.of(tier),
-                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), warnings));
-                continue;
             }
             if (source == RecipeSource.DISABLED) {
                 nextReports.put(dungeonId, new PortalRecipeReport(
@@ -239,7 +285,7 @@ public final class PortalRecipeGenerationService {
         this.profiles = Map.copyOf(nextProfiles);
         this.reports = Map.copyOf(nextReports);
         this.lastCacheHit = cacheHit;
-        boolean cacheSaved = cacheHit;
+        boolean cacheSaved = analysisTargets.isEmpty() || cacheHit;
         if (!cacheHit && cacheFingerprint != null) {
             cacheSaved = this.cache.save(
                 cacheFingerprint, nextProfiles, resourceDependencies, resources);
@@ -254,9 +300,10 @@ public final class PortalRecipeGenerationService {
                     exception.getMessage());
             }
         }
+        String cacheState = analysisTargets.isEmpty() ? "not needed" : cacheHit ? "hit" : "rebuilt";
         InstancedNotInfinite.LOGGER.info(
-            "Installed {} exact-dungeon and {} structure-pool portal recipes using a recipe analysis cache {}; {} targeted catalysts use explicit datapack recipes",
-            generated.size() - generatedPools, generatedPools, cacheHit ? "hit" : "rebuild", explicit.size());
+            "Installed {} exact-dungeon and {} structure-pool portal recipes; automatic analysis cache {}; {} targeted catalysts use explicit datapack recipes",
+            generated.size() - generatedPools, generatedPools, cacheState, explicit.size());
     }
 
     public Optional<StructureRecipeProfile> profile(ResourceLocation dungeonId) {
@@ -273,6 +320,12 @@ public final class PortalRecipeGenerationService {
 
     public boolean lastCacheHit() {
         return this.lastCacheHit;
+    }
+
+    private static StructureRecipeProfile skippedProfile(ResourceLocation dungeonId, String evidence) {
+        return new StructureRecipeProfile(
+            dungeonId, 0.0D, 0.0D, Set.of(), Set.of(), List.of(), Optional.empty(),
+            List.of(evidence), false, false);
     }
 
     private static Map<ManifestationTargetComponent, ResourceLocation> explicitRecipes(

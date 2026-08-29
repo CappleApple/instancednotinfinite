@@ -361,7 +361,7 @@ excludedAutomaticRecipeTargets = ["some_mod:disabled_structure", "#some_mod:disa
 
 The corresponding tier and ingredient contents remain datapack-controlled. `excludedRecipeBlocks` accepts exact blocks and `#block_tags`; matching block items are removed from palette, theme, core, catalyst, and fallback candidate resolution. `excludedAutomaticRecipeTargets` accepts exact structure IDs plus `#structure_tags`; an excluded tag suppresses its category recipe and automatic recipes for every member. Neither option removes ordinary datapack recipes. Disabling one inference source leaves the others active and deterministic. `automaticRecipeGeneration=false` removes INI-generated recipes while retaining ordinary datapack recipes.
 
-The expensive structure/template analysis is persisted in `config/instancednotinfinite/generated-recipes/`. Cache filenames and contents are deterministic and contain no world path or seed, so that folder can be shipped with a modpack. The cache is invalidated automatically when the active dungeon/source-structure set, recipe inference settings, matching template set, placement inputs, or any structure, structure-set, template-pool, or template resource used by the analysis changes. Normal recipes are still installed into Minecraft's recipe manager on every load, so crafting, recipe books, JEI, and EMI keep using the canonical runtime recipes. Set `regenerateRecipeCache=true` to force one rebuild on the next server start, world load, config reload, or `/dungeon reload`; it writes the replacement cache atomically and changes itself back to `false` only after that succeeds.
+The expensive structure/template analysis is persisted in `config/instancednotinfinite/generated-recipes/`. Before fingerprinting or loading that cache, INI inspects Minecraft's recipe manager for predefined exact-target and structure-pool catalyst recipes; targets already covered by those recipes are excluded from automatic template discovery and analysis. Cache filenames and contents are deterministic and contain no world path or seed, so that folder can be shipped with a modpack. The cache is invalidated automatically when the remaining automatic-analysis dungeon/source-structure set, recipe inference settings, matching template set, placement inputs, or any structure, structure-set, template-pool, or template resource used by the analysis changes. Normal recipes are still installed into Minecraft's recipe manager on every load, so crafting, recipe books, JEI, and EMI keep using the canonical runtime recipes. Set `regenerateRecipeCache=true` to force one rebuild on the next server start, world load, config reload, or `/dungeon reload`; it writes the replacement cache atomically and changes itself back to `false` only after that succeeds.
 
 The `manifestation` section controls presentation and workload independently of dungeon definitions:
 
@@ -400,6 +400,18 @@ The `manifestation` section controls presentation and workload independently of 
 | `sourcePortalExitOffsetBlocks` | `4` | Where a destination return portal places the player outward from the source entrance portal. |
 | `portalLifetimeMinutes` | `0` | Optional portal timeout; zero follows instance lifetime. |
 | `portalHudDistance` | `16` | Maximum targeting distance for the icon, name, and close-countdown panel. |
+| `generationSound` | `minecraft:block.beacon.ambient` | Sound event played periodically at the manifestation origin while the dungeon generates and materializes. |
+| `generationSoundVolume` | `0.25` | Playback volume for `generationSound`; range `0.0`–`1.0`, with zero muting it. |
+| `portalOpenSound` | `minecraft:block.beacon.activate` | Sound event played when portal growth begins. |
+| `portalOpenSoundVolume` | `0.4` | Playback volume for `portalOpenSound`; range `0.0`–`1.0`, with zero muting it. |
+| `portalAmbientSound` | `minecraft:block.trial_spawner.ambient_ominous` | Ambient sound event played periodically by loaded entry and return portals. |
+| `portalAmbientSoundVolume` | `0.1` | Playback volume for `portalAmbientSound`; range `0.0`–`1.0`, with zero muting it. |
+| `portalWalkThroughSound` | `minecraft:block.conduit.activate` | Sound event played after a successful traversal, both to the traveler and around the departure portal. |
+| `portalWalkThroughSoundVolume` | `1.0` | Playback volume for `portalWalkThroughSound`; range `0.0`–`1.0`, with zero muting it. |
+| `portalClosingSound` | `minecraft:block.beacon.deactivate` | Sound event played when portal closure begins. |
+| `portalClosingSoundVolume` | `0.25` | Playback volume for `portalClosingSound`; range `0.0`–`1.0`, with zero muting it. |
+| `portalClosedSound` | `minecraft:block.fire.extinguish` | Sound event played when the portal finishes closing and is removed. |
+| `portalClosedSoundVolume` | `0.25` | Playback volume for `portalClosedSound`; range `0.0`–`1.0`, with zero muting it. |
 | `completionOffering` | `minecraft:blaze_powder` | Exact item ID or `#item_tag`; one matching dropped item completes the exact instance bound to either open portal endpoint. |
 | `catalystConsumptionPolicy` | `ON_SUCCESS` | `ON_ACTIVATION`, `ON_SUCCESS`, or `NEVER`. |
 | `refundOnFailure` | `true` | Failure refund for `ON_ACTIVATION`; `ON_SUCCESS` always refunds. |

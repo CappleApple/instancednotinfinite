@@ -110,6 +110,7 @@ public final class DungeonManifestationManager implements AutoCloseable {
         this.jobs.put(id, job);
         this.data.put(manifestation);
         NeoForge.EVENT_BUS.post(new DungeonManifestationStartingEvent(manifestation));
+        PortalSounds.playGeneration(level, origin);
         InstancedNotInfinite.LOGGER.info(
             "[Manifestation {}] Starting dungeon {} as instance {}; mode={}", shortId(id), dungeonId,
             job.instance().id().shortId(), mode);
@@ -184,7 +185,7 @@ public final class DungeonManifestationManager implements AutoCloseable {
             || value.state() == ManifestationState.PORTAL_OPEN
             || value.state() == ManifestationState.CLOSING) {
             if (value.state() == ManifestationState.CLOSING) value.cancelAfterClosing();
-            else value.beginClosing(gameTime, ManifestationState.CANCELLED);
+            else beginClosing(value, gameTime, ManifestationState.CANCELLED);
             DungeonGenerationJob cancelledJob = jobs.remove(id);
             if (cancelledJob != null) cancelledJob.releaseTickets();
             data.changed();
@@ -231,6 +232,10 @@ public final class DungeonManifestationManager implements AutoCloseable {
         ServerLevel level = originLevel(value).orElse(null);
         if (level == null || value.state().terminal()) return;
         long now = level.getGameTime();
+        long generationSoundAge = now - value.startedAtGameTime();
+        if (isGeneratingPresentation(value.state()) && generationSoundAge > 0 && generationSoundAge % 80L == 0L) {
+            PortalSounds.playGeneration(level, value.origin());
+        }
         DungeonGenerationJob job = jobs.get(value.id());
         if (job != null && !job.complete()) DungeonInstanceManager.get(server).advanceGeneration(job);
         if (job != null) {
@@ -267,6 +272,7 @@ public final class DungeonManifestationManager implements AutoCloseable {
             && now - value.stateChangedAtGameTime() >= ServerConfig.INSTANCE.collapseDurationTicks.get()) {
             openPortal(level, value);
             value.transition(ManifestationState.PORTAL_OPENING, now);
+            PortalSounds.playOpen(level, value.origin());
             InstancedNotInfinite.LOGGER.info("[Manifestation {}] Portal opening", shortId(value.id()));
         }
         if (value.state() == ManifestationState.PORTAL_OPENING
@@ -276,13 +282,14 @@ public final class DungeonManifestationManager implements AutoCloseable {
             InstancedNotInfinite.LOGGER.info("[Manifestation {}] Portal open", shortId(value.id()));
         }
         if (value.state() == ManifestationState.PORTAL_OPEN && shouldClosePortal(value, now)) {
-            value.beginClosing(now, ManifestationState.COMPLETE);
+            beginClosing(value, now, ManifestationState.COMPLETE);
             data.changed();
             InstancedNotInfinite.LOGGER.info("[Manifestation {}] Portal closing", shortId(value.id()));
         }
         if (value.state() == ManifestationState.CLOSING
             && now - value.stateChangedAtGameTime() >= ServerConfig.INSTANCE.portalCloseDurationTicks.get()) {
             removePortal(level, value);
+            PortalSounds.playClosed(level, value.origin());
             NeoForge.EVENT_BUS.post(new DungeonPortalClosedEvent(value));
             value.transition(value.closingOutcome(), now);
             snapshots.remove(value.id());
@@ -303,6 +310,18 @@ public final class DungeonManifestationManager implements AutoCloseable {
         int lifetime = ServerConfig.INSTANCE.portalLifetimeMinutes.get();
         boolean timedOut = lifetime > 0 && now - value.stateChangedAtGameTime() >= lifetime * 1200L;
         return missingInstance || timedOut;
+    }
+
+    private static boolean isGeneratingPresentation(ManifestationState state) {
+        return state == ManifestationState.GENERATING
+            || state == ManifestationState.MANIFESTING
+            || state == ManifestationState.FINALIZING
+            || state == ManifestationState.COLLAPSING;
+    }
+
+    private void beginClosing(DungeonManifestation value, long gameTime, ManifestationState outcome) {
+        value.beginClosing(gameTime, outcome);
+        originLevel(value).ifPresent(level -> PortalSounds.playClosing(level, value.origin()));
     }
 
     private void fail(DungeonManifestation value, Exception exception) {

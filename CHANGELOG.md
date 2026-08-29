@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.4 — 2026-08-29
+
+### Added
+
+- Added server-configurable sound-event resource locations and independent `0.0`–`1.0` volume controls for dungeon generation, portal opening, portal ambience, traversal, closing, and final closure. The themed vanilla defaults use individually calibrated volumes, including beacon activation at `0.4` for opening, ominous trial-spawner ambience at `0.1`, and conduit activation at `1.0` for traversal.
+
+### Changed
+
+- Predefined exact-target and structure-pool recipes are now discovered before generated-recipe cache preparation, so automatic structure and template analysis only runs for targets that still need it.
+
+### Fixed
+
+- Integrated Cataclysm's `cataclysm:ancient_factory` now recognizes its `underground_decoration` generation step and uses enclosed underground terrain and entry placement.
+
 ## 1.1.3 — 2026-08-27
 
 ### Fixed
