@@ -1,5 +1,6 @@
 package com.cappleapple.instancednotinfinite.definition;
 
+import com.cappleapple.instancednotinfinite.compat.mowzie.MowzieStructureAccess;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -18,6 +19,8 @@ import net.minecraft.world.level.levelgen.GenerationStep;
 import net.minecraft.world.level.levelgen.structure.Structure;
 
 public final class AutomaticDungeonResolver {
+    private static final ResourceLocation MOWZIE_MONASTERY = ResourceLocation.fromNamespaceAndPath("mowziesmobs", "monastery");
+
     private AutomaticDungeonResolver() {
     }
 
@@ -40,6 +43,13 @@ public final class AutomaticDungeonResolver {
             .filter(holder -> holder.unwrapKey().isPresent())
             .sorted(Comparator.comparing(holder -> holder.unwrapKey().orElseThrow().location().toString()))
             .toList();
+        if (structure instanceof MowzieStructureAccess mowzieStructure) {
+            List<Holder<Biome>> configuredBiomes = mowzieStructure.instancednotinfinite$allowedBiomes().stream()
+                .filter(holder -> holder.unwrapKey().isPresent())
+                .sorted(Comparator.comparing(holder -> holder.unwrapKey().orElseThrow().location().toString()))
+                .toList();
+            if (!configuredBiomes.isEmpty()) automaticBiomes = configuredBiomes;
+        }
         if (automaticBiomes.isEmpty()) {
             throw new ResolutionException("Structure exposes no keyed allowed biomes");
         }
@@ -68,14 +78,20 @@ public final class AutomaticDungeonResolver {
             adaptation,
             generationStep,
             absoluteStartHeight.isPresent() ? absoluteStartHeight.getAsInt() : null));
+        EnvironmentType automaticEnvironment = structureId.equals(MOWZIE_MONASTERY)
+            ? EnvironmentType.SURFACE
+            : inferred.environment();
+        String automaticReason = structureId.equals(MOWZIE_MONASTERY)
+            ? "Mowzie monastery is an authored mountain surface structure"
+            : inferred.reason();
         EnvironmentType environment = override != null && override.environment() != null
             ? override.environment()
-            : inferred.environment();
+            : automaticEnvironment;
         String customStrategy = override == null ? null : override.customStrategy();
         String environmentSource = override != null && override.environment() != null ? "config override" : "automatic";
         String environmentReason = override != null && override.environment() != null
             ? "explicit per-structure override"
-            : inferred.reason();
+            : automaticReason;
 
         int horizontalPadding = value(override == null ? null : override.horizontalPadding(), defaultHorizontalPadding);
         int verticalPadding = value(override == null ? null : override.verticalPadding(), defaultVerticalPadding);

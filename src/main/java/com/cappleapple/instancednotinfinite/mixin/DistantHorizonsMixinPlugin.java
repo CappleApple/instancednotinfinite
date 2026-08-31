@@ -7,7 +7,7 @@ import org.objectweb.asm.tree.ClassNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 
-/** Keeps the Distant Horizons compatibility mixin genuinely optional. */
+/** Keeps integrations with optional mods from resolving targets when those mods are absent. */
 public final class DistantHorizonsMixinPlugin implements IMixinConfigPlugin {
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
@@ -16,6 +16,9 @@ public final class DistantHorizonsMixinPlugin implements IMixinConfigPlugin {
         }
         if (mixinClassName.contains(".compat.Jade")) {
             return LoadingModList.get().getModFileById("jade") != null;
+        }
+        if (mixinClassName.contains(".compat.Mowzie")) {
+            return LoadingModList.get().getModFileById("mowziesmobs") != null;
         }
         return true;
     }

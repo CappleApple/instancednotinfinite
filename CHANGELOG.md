@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.5 — 2026-08-31
+
+### Fixed
+
+- Mowzie's Mobs structures selected as explicit dungeons now use their structure-specific configured biomes and skip natural-world terrain vetoes only while INI generates the retained start. `mowziesmobs:monastery` uses mountain-peak surface terrain, while `mowziesmobs:wrought_chamber` receives a controlled underground anchor instead of requiring a naturally carved cave.
+
 ## 1.1.4 — 2026-08-29
 
 ### Added

@@ -268,9 +268,12 @@ public final class DungeonStructurePlacer {
                     if (Math.max(Math.abs(chunkX), Math.abs(chunkZ)) != radius) continue;
                     attempts++;
                     ChunkPos candidate = new ChunkPos(chunkX, chunkZ);
-                    StructureStart start = structure.generate(
-                        level.registryAccess(), generator, generator.getBiomeSource(), level.getChunkSource().randomState(),
-                        level.getStructureManager(), seed, candidate, 0, level, holder -> true);
+                    StructureStart start;
+                    try (var ignored = ControlledStructureStartGeneration.begin()) {
+                        start = structure.generate(
+                            level.registryAccess(), generator, generator.getBiomeSource(), level.getChunkSource().randomState(),
+                            level.getStructureManager(), seed, candidate, 0, level, holder -> true);
+                    }
                     if (!start.isValid()) continue;
                     if (attempts > 1) {
                         InstancedNotInfinite.LOGGER.info(

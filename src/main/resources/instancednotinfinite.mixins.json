@@ -4,7 +4,13 @@
   "package": "com.cappleapple.instancednotinfinite.mixin",
   "plugin": "com.cappleapple.instancednotinfinite.mixin.DistantHorizonsMixinPlugin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": ["MinecraftServerAccessor", "LevelChunkPlacementCaptureMixin", "compat.DistantHorizonsServerProxyMixin"],
+  "mixins": [
+    "MinecraftServerAccessor",
+    "LevelChunkPlacementCaptureMixin",
+    "compat.DistantHorizonsServerProxyMixin",
+    "compat.MowzieStructureMixin",
+    "compat.MowzieWroughtnautChamberStructureMixin"
+  ],
   "client": [
     "compat.DistantHorizonsClientApiMixin",
     "compat.DistantHorizonsClientProxyMixin",
