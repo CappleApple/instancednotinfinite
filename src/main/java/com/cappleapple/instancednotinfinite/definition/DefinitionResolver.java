@@ -26,6 +26,19 @@ public final class DefinitionResolver {
         return new ResolvedDungeonDefinition(definition, structureId, kind, biome.holder(), biome.id());
     }
 
+    /** Template existence and NBT loading are validated by the background preparation step. */
+    public static ResolvedDungeonDefinition resolveForPreparation(RegistryAccess access, DungeonDefinition definition, long seed)
+        throws ResolutionException {
+        ResourceLocation id = ResourceLocation.tryParse(definition.structure());
+        if (id == null) throw new ResolutionException("Invalid structure id " + definition.structure());
+        boolean worldgen = access.registryOrThrow(Registries.STRUCTURE).containsKey(id);
+        StructureKind kind = definition.structureKind();
+        if (kind == StructureKind.WORLDGEN && !worldgen) throw new ResolutionException("Unknown worldgen structure " + id);
+        if (kind == StructureKind.AUTO) kind = worldgen ? StructureKind.WORLDGEN : StructureKind.TEMPLATE;
+        BiomeSelector.Selection biome = BiomeSelector.select(access, definition, seed);
+        return new ResolvedDungeonDefinition(definition, id, kind, biome.holder(), biome.id());
+    }
+
     private static StructureKind resolveStructureKind(
         RegistryAccess access,
         StructureTemplateManager templates,

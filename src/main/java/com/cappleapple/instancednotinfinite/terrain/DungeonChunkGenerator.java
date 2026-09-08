@@ -4,8 +4,8 @@ import com.cappleapple.instancednotinfinite.definition.EnvironmentType;
 import com.mojang.serialization.MapCodec;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
@@ -14,8 +14,8 @@ import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.SectionPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.WorldGenRegion;
-import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.NoiseColumn;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.WorldGenLevel;
@@ -76,11 +76,16 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
         }
     }
 
+    /** Separate sampling state keeps worker preparation isolated from runtime chunk generation. */
+    public DungeonChunkGenerator preparationGenerator() {
+        return new DungeonChunkGenerator(this.biome, generatorSettings(), this.plan.get());
+    }
+
     public GenerationPlan plan() {
         return this.plan.get();
     }
 
-    public void updatePlan(GenerationPlan updated) {
+    public synchronized void updatePlan(GenerationPlan updated) {
         this.palette = MaterialPalette.forDefinition(updated.definition(), this.biome);
         if (!this.customTerrain) this.terrainStrategy = TerrainStrategyRegistry.forEnvironment(updated.definition().environment());
         this.plan.set(updated);
@@ -114,21 +119,30 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
     }
 
     private BlockState terrainBlock(GenerationPlan current, int x, int y, int z) {
+        return terrainBlock(current, this.palette, this.terrainStrategy, this.temporaryFloatingTerrain, x, y, z);
+    }
+
+    private static BlockState terrainBlock(GenerationPlan current, MaterialPalette palette,
+        TerrainEnvelopeStrategy strategy, boolean temporaryFloatingTerrain, int x, int y, int z) {
         if (current.floatingVoid()) {
-            if (!this.temporaryFloatingTerrain || y > current.terrainSurfaceY()
+            if (!temporaryFloatingTerrain || y > current.terrainSurfaceY()
                 || !current.envelopeBounds().isInside(x, y, z)) return Blocks.AIR.defaultBlockState();
-            return flatBlock(y, current.terrainSurfaceY(), null);
+            return flatBlock(palette, y, current.terrainSurfaceY(), null);
         }
-        return this.terrainStrategy.blockAt(current, this.palette, x, y, z);
+        return strategy.blockAt(current, palette, x, y, z);
     }
 
     private BlockState flatBlock(int y, int surface, Integer floor) {
+        return flatBlock(this.palette, y, surface, floor);
+    }
+
+    private static BlockState flatBlock(MaterialPalette palette, int y, int surface, Integer floor) {
         int solidSurface = floor == null ? surface : floor;
         if (y > surface) return Blocks.AIR.defaultBlockState();
         if (y > solidSurface) return Blocks.WATER.defaultBlockState();
-        if (y == solidSurface) return this.palette.surface();
-        if (y >= solidSurface - 3) return this.palette.filler();
-        return this.palette.core();
+        if (y == solidSurface) return palette.surface();
+        if (y >= solidSurface - 3) return palette.filler();
+        return palette.core();
     }
 
     public record PlacementSample(int surfaceY, Integer oceanFloorY) {
@@ -166,15 +180,32 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
         StructureManager structures,
         ChunkAccess chunk
     ) {
-        GenerationPlan current = this.plan.get();
+        GenerationPlan current;
+        MaterialPalette currentPalette;
+        TerrainEnvelopeStrategy currentStrategy;
+        boolean temporary = this.temporaryFloatingTerrain;
+        synchronized (this) {
+            current = this.plan.get();
+            currentPalette = this.palette;
+            currentStrategy = this.terrainStrategy;
+        }
         int chunkMinX = chunk.getPos().getMinBlockX();
         int chunkMinZ = chunk.getPos().getMinBlockZ();
         if (chunkMinX > current.envelopeBounds().maxX() || chunkMinX + 15 < current.envelopeBounds().minX()
             || chunkMinZ > current.envelopeBounds().maxZ() || chunkMinZ + 15 < current.envelopeBounds().minZ()) {
             return CompletableFuture.completedFuture(chunk);
         }
-        if (current.floatingVoid() && this.temporaryFloatingTerrain) this.temporaryChunks.add(chunk.getPos());
+        if (current.floatingVoid() && temporary) this.temporaryChunks.add(chunk.getPos());
+        // Only the scheduler-owned generation chunk is mutated here. The returned future
+        // prevents subsequent chunk stages from reading it until terrain and heightmaps are ready.
+        return CompletableFuture.supplyAsync(() -> fillTerrain(chunk, current, currentPalette, currentStrategy, temporary),
+            net.minecraft.Util.backgroundExecutor());
+    }
 
+    private static ChunkAccess fillTerrain(ChunkAccess chunk, GenerationPlan current, MaterialPalette palette,
+        TerrainEnvelopeStrategy strategy, boolean temporary) {
+        int chunkMinX = chunk.getPos().getMinBlockX();
+        int chunkMinZ = chunk.getPos().getMinBlockZ();
         BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
         Heightmap ocean = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.OCEAN_FLOOR_WG);
         Heightmap surface = chunk.getOrCreateHeightmapUnprimed(Heightmap.Types.WORLD_SURFACE_WG);
@@ -185,7 +216,7 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
             for (int localZ = 0; localZ < 16; localZ++) {
                 int z = chunkMinZ + localZ;
                 for (int y = minY; y <= maxY; y++) {
-                    BlockState state = terrainBlock(current, x, y, z);
+                    BlockState state = terrainBlock(current, palette, strategy, temporary, x, y, z);
                     if (!state.isAir()) {
                         chunk.setBlockState(mutable.set(localX, y, localZ), state, false);
                         ocean.update(localX, y, localZ, state);
@@ -194,7 +225,7 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
                 }
             }
         }
-        return CompletableFuture.completedFuture(chunk);
+        return chunk;
     }
 
     @Override

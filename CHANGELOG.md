@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.6 — 2026-09-08
+
+### Fixed
+
+- Dungeon layout search, template loading, foundation analysis, and island terrain filling now run on worker threads. Terrain chunk requests return immediately and are limited to four in flight per job instead of synchronously waiting for chunk generation.
+- `/dungeon create` now queues generation across ticks, including random selection and lifecycle overrides.
+- Cancelling or deleting a generating dungeon interrupts pending preparation, releases generation tickets, and discards late worker results. Manifestation bounds update before the first structure blocks are streamed.
+
 ## 1.1.5 — 2026-08-31
 
 ### Fixed

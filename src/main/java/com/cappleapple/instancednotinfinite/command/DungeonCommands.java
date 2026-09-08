@@ -173,9 +173,9 @@ public final class DungeonCommands {
     private static int create(CommandContext<CommandSourceStack> context) {
         ResourceLocation dungeon = ResourceLocationArgument.getId(context, "dungeon");
         try {
-            DungeonInstance instance = manager(context).create(dungeon);
+            DungeonInstance instance = manager(context).queueCreation(java.util.Optional.of(dungeon), InstanceLifecycleOverrides.empty());
             context.getSource().sendSuccess(() -> Component.literal(
-                "Created " + dungeon + " as " + instance.id() + " in " + instance.dimensionId()), true);
+                "Queued " + dungeon + " as " + instance.id() + " in " + instance.dimensionId()), true);
             return Command.SINGLE_SUCCESS;
         } catch (InstanceOperationException exception) {
             return fail(context, exception);
@@ -185,9 +185,9 @@ public final class DungeonCommands {
     private static int createWithLifecycle(CommandContext<CommandSourceStack> context) {
         ResourceLocation dungeon = ResourceLocationArgument.getId(context, "dungeon");
         try {
-            DungeonInstance instance = manager(context).create(dungeon, lifecycle(context));
+            DungeonInstance instance = manager(context).queueCreation(java.util.Optional.of(dungeon), lifecycle(context));
             context.getSource().sendSuccess(() -> Component.literal(
-                "Created " + dungeon + " as " + instance.id() + " in " + instance.dimensionId()), true);
+                "Queued " + dungeon + " as " + instance.id() + " in " + instance.dimensionId()), true);
             return Command.SINGLE_SUCCESS;
         } catch (InstanceOperationException exception) {
             return fail(context, exception);
@@ -196,9 +196,9 @@ public final class DungeonCommands {
 
     private static int createRandom(CommandContext<CommandSourceStack> context) {
         try {
-            DungeonInstance instance = manager(context).createRandom();
+            DungeonInstance instance = manager(context).queueCreation(java.util.Optional.empty(), InstanceLifecycleOverrides.empty());
             context.getSource().sendSuccess(() -> Component.literal(
-                "Selected " + instance.definition().id() + " and created instance " + instance.id()
+                "Selected " + instance.definition().id() + " and queued instance " + instance.id()
                     + " in " + instance.dimensionId()), true);
             return Command.SINGLE_SUCCESS;
         } catch (InstanceOperationException exception) {
@@ -208,9 +208,9 @@ public final class DungeonCommands {
 
     private static int createRandomWithLifecycle(CommandContext<CommandSourceStack> context) {
         try {
-            DungeonInstance instance = manager(context).createRandom(lifecycle(context));
+            DungeonInstance instance = manager(context).queueCreation(java.util.Optional.empty(), lifecycle(context));
             context.getSource().sendSuccess(() -> Component.literal(
-                "Selected " + instance.definition().id() + " and created instance " + instance.id()
+                "Selected " + instance.definition().id() + " and queued instance " + instance.id()
                     + " in " + instance.dimensionId()), true);
             return Command.SINGLE_SUCCESS;
         } catch (InstanceOperationException exception) {

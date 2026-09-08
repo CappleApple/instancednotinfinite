@@ -65,7 +65,14 @@ public final class DungeonInstanceManager implements AutoCloseable {
     private final InstanceCleanupManager cleanup;
     private final Map<InstanceId, Integer> unloadRequestedAtTick = new HashMap<>();
     private final Map<UUID, PendingEntry> pendingEntries = new LinkedHashMap<>();
+    private final java.util.Set<InstanceId> queuedCreations = new java.util.LinkedHashSet<>();
     private final GenerationTickBudget generationBudget = new GenerationTickBudget();
+    private final Map<InstanceId, DungeonGenerationJob> generationJobs = new HashMap<>();
+    private final java.util.concurrent.ExecutorService preparationExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(task -> {
+        Thread thread = new Thread(task, "INI dungeon preparation");
+        thread.setDaemon(true);
+        return thread;
+    });
     private int tickCounter;
 
     private DungeonInstanceManager(MinecraftServer server) {
@@ -107,7 +114,7 @@ public final class DungeonInstanceManager implements AutoCloseable {
         DungeonGenerationJob job = new DungeonGenerationJob(
             this, prepareCreation(dungeonId, InstanceId.random(), lifecycleOverrides), 1, false, ignored -> {});
         while (!job.complete()) {
-            job.advance(Double.MAX_VALUE, Integer.MAX_VALUE);
+            job.advanceSynchronously();
         }
         return job.instance();
     }
@@ -126,7 +133,7 @@ public final class DungeonInstanceManager implements AutoCloseable {
         DungeonGenerationJob job = new DungeonGenerationJob(
             this, prepareCreation(selected, id, lifecycleOverrides), 1, false, ignored -> {});
         while (!job.complete()) {
-            job.advance(Double.MAX_VALUE, Integer.MAX_VALUE);
+            job.advanceSynchronously();
         }
         return job.instance();
     }
@@ -158,6 +165,19 @@ public final class DungeonInstanceManager implements AutoCloseable {
         DungeonGenerationJob job = new DungeonGenerationJob(
             this, prepareCreation(selected, id, lifecycleOverrides), 1, false, ignored -> {});
         this.pendingEntries.put(player.getUUID(), new PendingEntry(player, player.level().dimension(), job));
+        return job.instance();
+    }
+
+    /** Operator creation also returns before layout search or terrain generation begins. */
+    public DungeonInstance queueCreation(Optional<ResourceLocation> dungeonId, InstanceLifecycleOverrides lifecycleOverrides)
+        throws InstanceOperationException {
+        requireServerThread();
+        InstanceId id = InstanceId.random();
+        long selectionSeed = SeedDerivation.derive(this.server.getWorldData().worldGenOptions().seed(), id.value(), "definition_pool");
+        ResourceLocation selected = dungeonId.orElseGet(() -> DungeonDefinitionRegistry.INSTANCE.select(selectionSeed).orElse(null));
+        if (selected == null) throw new InstanceOperationException("No valid dungeon definitions are loaded");
+        DungeonGenerationJob job = new DungeonGenerationJob(this, prepareCreation(selected, id, lifecycleOverrides), 1, false, ignored -> {});
+        this.queuedCreations.add(id);
         return job.instance();
     }
 
@@ -226,7 +246,7 @@ public final class DungeonInstanceManager implements AutoCloseable {
             ServerConfig.INSTANCE.maximumSnapshotBlocks.get(), true, snapshotBatchConsumer);
     }
 
-    private PreparedDungeonCreation prepareCreation(
+    private PendingDungeonCreation prepareCreation(
         ResourceLocation dungeonId,
         InstanceId id,
         InstanceLifecycleOverrides lifecycleOverrides
@@ -244,7 +264,7 @@ public final class DungeonInstanceManager implements AutoCloseable {
 
         ResolvedDungeonDefinition resolved;
         try {
-            resolved = DefinitionResolver.resolve(this.server.registryAccess(), this.server.getStructureManager(), definition, seed);
+            resolved = DefinitionResolver.resolveForPreparation(this.server.registryAccess(), definition, seed);
         } catch (ResolutionException exception) {
             throw new InstanceOperationException("Cannot resolve dungeon " + dungeonId + ": " + exception.getMessage(), exception);
         }
@@ -259,26 +279,42 @@ public final class DungeonInstanceManager implements AutoCloseable {
             DynamicLevelBackend.CreatedLevel created = this.backend.create(this.server, id, resolved, seed);
             boolean inferEnvironment = automaticDefinition && DungeonDefinitionRegistry.INSTANCE.configuredOverride(dungeonId)
                 .map(override -> override.environment() == null).orElse(true);
-            PreparedStructure prepared = this.structurePlacer.prepare(created.level(), resolved, created.generator(), seed, inferEnvironment);
-            definition = effectiveDefinition(prepared.definition().definition(), automaticDefinition);
-            GenerationPlan plan = GenerationPlan.fromBounds(
-                seed, definition, prepared.bounds(), prepared.origin(), automaticDefinition,
-                prepared.terrainSurfaceY(), prepared.oceanFloorY());
-            created.generator().updatePlan(plan);
-            resizeWorldBorder(created.level(), plan);
-            instance.setPlan(plan);
-            this.data.changed();
-            if (ServerConfig.INSTANCE.debugLogging.get()) {
-                InstancedNotInfinite.LOGGER.info(
-                    "[Dungeon {}] structureBounds={} envelopeBounds={} origin={} requestedEntry={}",
-                    id.shortId(), plan.structureBounds(), plan.envelopeBounds(), plan.structureOrigin(), plan.entryPosition());
-            }
-            return new PreparedDungeonCreation(
-                instance, created, prepared, plan, automaticDefinition, resolved.biome().value().getFogColor());
+            var inputs = com.cappleapple.instancednotinfinite.structure.StructurePreparationContext.capture(created.level());
+            var planner = created.generator().preparationGenerator();
+            var preparation = this.preparationExecutor.submit(() -> this.structurePlacer.prepare(
+                inputs, resolved, planner, seed, inferEnvironment));
+            return new PendingDungeonCreation(instance, created, automaticDefinition,
+                resolved.biome().value().getFogColor(), preparation);
         } catch (Exception exception) {
             failCreation(instance, exception);
             throw new InstanceOperationException("Dungeon instance " + id.shortId() + " failed: " + exception.getMessage(), exception);
         }
+    }
+
+    PreparedDungeonCreation acceptPreparation(PendingDungeonCreation pending, PreparedStructure prepared) {
+        requireServerThread();
+        if (pending.instance().state() != InstanceState.CREATING) throw new IllegalStateException("Dungeon preparation was cancelled");
+        DungeonDefinition definition = effectiveDefinition(prepared.definition().definition(), pending.automaticDefinition());
+        GenerationPlan plan = GenerationPlan.fromBounds(pending.instance().seed(), definition, prepared.bounds(), prepared.origin(),
+            pending.automaticDefinition(), prepared.terrainSurfaceY(), prepared.oceanFloorY());
+        pending.created().generator().updatePlan(plan);
+        resizeWorldBorder(pending.created().level(), plan);
+        pending.instance().setPlan(plan);
+        this.data.changed();
+        if (ServerConfig.INSTANCE.debugLogging.get()) {
+            InstancedNotInfinite.LOGGER.info("[Dungeon {}] structureBounds={} envelopeBounds={} origin={} requestedEntry={}",
+                pending.instance().id().shortId(), plan.structureBounds(), plan.envelopeBounds(), plan.structureOrigin(), plan.entryPosition());
+        }
+        return new PreparedDungeonCreation(pending.instance(), pending.created(), prepared, plan,
+            pending.automaticDefinition(), pending.biomeFogColor());
+    }
+
+    void registerGeneration(DungeonGenerationJob job) {
+        this.generationJobs.put(job.instance().id(), job);
+    }
+
+    void releaseGeneration(DungeonGenerationJob job) {
+        this.generationJobs.remove(job.instance().id(), job);
     }
 
     void finishPreparedCreation(PreparedDungeonCreation creation, ResolvedPortalColors portalColors) throws InstanceOperationException {
@@ -327,7 +363,7 @@ public final class DungeonInstanceManager implements AutoCloseable {
             creation.automaticDefinition(), creation.biomeFogColor());
     }
 
-    void failPreparedCreation(PreparedDungeonCreation creation, Exception cause) {
+    void failPreparedCreation(PendingDungeonCreation creation, Exception cause) {
         failCreation(creation.instance(), cause);
     }
 
@@ -451,6 +487,8 @@ public final class DungeonInstanceManager implements AutoCloseable {
     public void delete(InstanceId id) throws InstanceOperationException {
         requireServerThread();
         DungeonInstance instance = require(id);
+        DungeonGenerationJob job = this.generationJobs.get(id);
+        if (job != null) job.releaseTickets();
         if (instance.state() == InstanceState.CREATING) {
             instance.fail("Deleted while generation was pending", System.currentTimeMillis());
             this.data.changed();
@@ -466,6 +504,8 @@ public final class DungeonInstanceManager implements AutoCloseable {
     public void cancelCreation(InstanceId id, String reason) throws InstanceOperationException {
         requireServerThread();
         DungeonInstance instance = require(id);
+        DungeonGenerationJob job = this.generationJobs.get(id);
+        if (job != null) job.releaseTickets();
         if (instance.state() == InstanceState.CREATING) {
             instance.fail(reason, System.currentTimeMillis());
             this.data.changed();
@@ -518,6 +558,7 @@ public final class DungeonInstanceManager implements AutoCloseable {
         requireServerThread();
         processCleanupResults();
         tickPendingEntries();
+        tickQueuedCreations();
         if (++this.tickCounter % 20 != 0) {
             return;
         }
@@ -571,6 +612,25 @@ public final class DungeonInstanceManager implements AutoCloseable {
                 case DELETE_PENDING -> requestCleanupIfDue(instance, now);
                 default -> {
                 }
+            }
+        }
+    }
+
+    private void tickQueuedCreations() {
+        for (InstanceId id : List.copyOf(this.queuedCreations)) {
+            DungeonGenerationJob job = this.generationJobs.get(id);
+            if (job == null) {
+                this.queuedCreations.remove(id);
+                continue;
+            }
+            try {
+                advanceGeneration(job);
+                if (job.complete()) this.queuedCreations.remove(id);
+            } catch (InstanceOperationException exception) {
+                this.queuedCreations.remove(id);
+                job.releaseTickets();
+                if (job.instance().state() == InstanceState.CREATING) failCreation(job.instance(), exception);
+                InstancedNotInfinite.LOGGER.warn("[Dungeon {}] Queued creation failed", id.shortId(), exception);
             }
         }
     }
@@ -1073,8 +1133,10 @@ public final class DungeonInstanceManager implements AutoCloseable {
 
     @Override
     public void close() {
-        this.pendingEntries.values().forEach(pending -> pending.job().releaseTickets());
+        List.copyOf(this.generationJobs.values()).forEach(DungeonGenerationJob::releaseTickets);
+        this.preparationExecutor.shutdownNow();
         this.pendingEntries.clear();
+        this.queuedCreations.clear();
         this.data.changed();
         this.server.overworld().getDataStorage().save();
         this.cleanup.close();

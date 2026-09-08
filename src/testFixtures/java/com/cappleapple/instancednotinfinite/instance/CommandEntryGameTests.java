@@ -36,6 +36,7 @@ public final class CommandEntryGameTests {
             for (boolean lifecycle : List.of(false, true)) {
                 String name = "queued_entry_" + (random ? "random" : "named") + (lifecycle ? "_lifecycle" : "");
                 tests.add(test(name, helper -> entersAfterGeneration(helper, random ? null : FIXTURE, lifecycle)));
+                tests.add(test(name.replace("entry", "creation"), helper -> createsAfterGeneration(helper, random ? null : FIXTURE, lifecycle)));
             }
         }
         for (String reason : List.of("disconnect", "dimension_change", "death", "delete")) {
@@ -52,7 +53,9 @@ public final class CommandEntryGameTests {
     }
 
     private static TestFunction test(String name, java.util.function.Consumer<GameTestHelper> body) {
-        return new TestFunction("command_entry", "instancednotinfinite." + name, "minecraft:bastion/mobs/empty", 1200, 0L, true, body);
+        // The GameTest server runs unpaced ticks; background chunks need wall-clock time,
+        // especially with several simultaneous random mineshafts and command creations.
+        return new TestFunction("command_entry", "instancednotinfinite." + name, "minecraft:bastion/mobs/empty", 30_000, 0L, true, body);
     }
 
     private static void entersRealArena(GameTestHelper helper, String dungeon) {
@@ -110,6 +113,32 @@ public final class CommandEntryGameTests {
             })
             .thenWaitUntil(() -> helper.assertTrue(manager.get(instance.id()).isEmpty(), "Waiting for command-created instance cleanup"))
             .thenSucceed();
+    }
+
+    private static void createsAfterGeneration(GameTestHelper helper, String dungeon, boolean lifecycle) {
+        var server = helper.getLevel().getServer();
+        var manager = DungeonInstanceManager.get(server);
+        Set<InstanceId> before = manager.instances().stream().map(DungeonInstance::id).collect(Collectors.toSet());
+        String command = "dungeon create" + (dungeon == null ? "" : " " + dungeon) + (lifecycle ? " lifecycle 123 456 -1" : "");
+        try {
+            helper.assertValueEqual(server.getCommands().getDispatcher().execute(command,
+                server.createCommandSourceStack().withPermission(2).withSuppressedOutput()), 1, "Creation command rejected the job");
+        } catch (com.mojang.brigadier.exceptions.CommandSyntaxException exception) {
+            throw new IllegalStateException(exception);
+        }
+        var added = manager.instances().stream().filter(value -> !before.contains(value.id())).toList();
+        helper.assertValueEqual(added.size(), 1, "Creation did not reserve exactly one instance");
+        DungeonInstance instance = added.getFirst();
+        helper.assertValueEqual(instance.state(), InstanceState.CREATING, "Operator creation blocked until completion");
+        helper.assertTrue(instance.plan().isEmpty(), "Operator creation performed layout preparation inline");
+        if (lifecycle) helper.assertValueEqual(instance.lifecycleSettings(), new InstanceLifecycleSettings(123, 456, -1), "Creation lost lifecycle settings");
+        helper.startSequence().thenWaitUntil(() -> helper.assertTrue(instance.state() == InstanceState.ACTIVE || instance.state() == InstanceState.VACANT, "Waiting for queued creation"))
+            .thenExecute(() -> {
+                var level = server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, instance.dimensionId()));
+                var portal = DestinationPortalPlacement.position(instance.plan().orElseThrow(), ServerConfig.INSTANCE.destinationPortalBehindEntryBlocks.get());
+                helper.assertTrue(level.getBlockEntity(portal) instanceof ManifestationPortalBlockEntity, "Queued creation has no return portal");
+                delete(manager, instance);
+            }).thenWaitUntil(() -> helper.assertTrue(manager.get(instance.id()).isEmpty(), "Waiting for queued creation cleanup")).thenSucceed();
     }
 
     private static void cancelsBeforeTeleport(GameTestHelper helper, String reason) {

@@ -1,42 +1,54 @@
 package com.cappleapple.instancednotinfinite.instance;
 
 import com.cappleapple.instancednotinfinite.InstancedNotInfinite;
-import com.cappleapple.instancednotinfinite.config.ServerConfig;
 import com.cappleapple.instancednotinfinite.manifestation.PortalAppearanceResolver;
 import com.cappleapple.instancednotinfinite.manifestation.PortalColor;
 import com.cappleapple.instancednotinfinite.manifestation.ResolvedPortalColors;
+import com.cappleapple.instancednotinfinite.mixin.ServerChunkCacheInvoker;
 import com.cappleapple.instancednotinfinite.snapshot.DungeonVisualSnapshot;
 import com.cappleapple.instancednotinfinite.snapshot.DungeonVisualSnapshotBuilder;
 import com.cappleapple.instancednotinfinite.snapshot.VisualBlock;
 import com.cappleapple.instancednotinfinite.structure.FloatingTerrainRemoval;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import net.minecraft.core.SectionPos;
+import net.minecraft.server.level.ChunkResult;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 
-/** Server-thread-only, resumable dungeon construction job. */
+/** Server-thread coordinator for worker preparation, asynchronous terrain, and bounded placement. */
 public final class DungeonGenerationJob {
     private static final int ESTIMATED_OPERATIONS_PER_CHUNK = 4096;
     private static final TicketType<java.util.UUID> GENERATION_TICKET = TicketType.create(
         "instancednotinfinite_generation", java.util.UUID::compareTo);
 
+    private static final int TERRAIN_REQUEST_WINDOW = 4;
     private final DungeonInstanceManager manager;
+    private final PendingDungeonCreation pending;
+    private final int maximumSnapshotBlocks;
+    private final Map<Integer, CompletableFuture<ChunkResult<ChunkAccess>>> terrainRequests = new HashMap<>();
+    private final Set<ChunkPos> ticketedChunks = new LinkedHashSet<>();
+    private int terrainRequestIndex;
     private PreparedDungeonCreation creation;
-    private final List<ChunkPos> terrainChunks;
-    private final List<ChunkPos> structureChunks;
-    private final DungeonVisualSnapshotBuilder snapshot;
+    private List<ChunkPos> terrainChunks = List.of();
+    private List<ChunkPos> structureChunks = List.of();
+    private DungeonVisualSnapshotBuilder snapshot;
     private final boolean presentationSnapshot;
     private final Consumer<List<VisualBlock>> batchConsumer;
     private int terrainIndex;
     private int heightmapIndex;
     private int structureIndex;
-    private final FloatingTerrainRemoval floatingRemoval;
+    private FloatingTerrainRemoval floatingRemoval;
     private List<ChunkPos> cleanupChunks;
     private int cleanupIndex;
     private boolean placementInitialized;
@@ -48,42 +60,90 @@ public final class DungeonGenerationJob {
 
     DungeonGenerationJob(
         DungeonInstanceManager manager,
-        PreparedDungeonCreation creation,
+        PendingDungeonCreation pending,
         int maximumSnapshotBlocks,
         boolean presentationEnvelope,
         Consumer<List<VisualBlock>> batchConsumer
     ) {
         this.manager = manager;
-        this.creation = creation;
-        // Holograms are structure-only. Prime only the structure and entry chunks up front;
-        // the bounded controlled terrain around them remains lazy when a player enters.
-        this.terrainChunks = chunksFor(
-            creation.plan().structureBounds(), creation.plan().entryPosition().getX(), creation.plan().entryPosition().getZ());
-        this.structureChunks = chunksFor(creation.structure().bounds(), null, null);
+        this.pending = pending;
+        this.maximumSnapshotBlocks = maximumSnapshotBlocks;
         this.presentationSnapshot = presentationEnvelope;
-        this.snapshot = new DungeonVisualSnapshotBuilder(
-            creation.instance(), creation.plan(), maximumSnapshotBlocks, presentationEnvelope);
         this.batchConsumer = batchConsumer;
+        manager.registerGeneration(this);
+    }
+
+    private void initialize(PreparedDungeonCreation creation) {
+        this.creation = creation;
+        // Include a one-chunk halo for pieces that query neighboring heightmaps, plus the
+        // requested entry. Request tickets gradually; never start the entire island at once.
+        Set<ChunkPos> terrain = new LinkedHashSet<>(chunksFor(creation.plan().structureBounds().inflatedBy(16),
+            creation.plan().entryPosition().getX(), creation.plan().entryPosition().getZ()));
+        if (creation.structure().worldgenStart() != null) terrain.add(creation.structure().worldgenStart().getChunkPos());
+        this.terrainChunks = List.copyOf(terrain);
+        this.structureChunks = chunksFor(creation.structure().bounds(), null, null);
+        this.snapshot = new DungeonVisualSnapshotBuilder(
+            creation.instance(), creation.plan(), this.maximumSnapshotBlocks, this.presentationSnapshot);
         this.floatingRemoval = creation.plan().floatingVoid()
             ? new FloatingTerrainRemoval(creation.created().level(), creation.plan()) : null;
         if (this.floatingRemoval != null) creation.created().generator().beginFloatingTerrain();
-        this.structureChunks.forEach(chunk -> creation.created().level().getChunkSource().addRegionTicket(
-            GENERATION_TICKET, chunk, 0, creation.instance().id().value()));
+    }
+
+    /** Compatibility path for the explicitly synchronous Java creation API. */
+    void advanceSynchronously() throws InstanceOperationException {
+        advance(Double.MAX_VALUE, Integer.MAX_VALUE, true);
     }
 
     /** Advances complete chunk-sized work units until the time budget or hard cap is reached. */
     public void advance(double timeBudgetMillis, int operationCap) throws InstanceOperationException {
+        advance(timeBudgetMillis, operationCap, false);
+    }
+
+    private void advance(double timeBudgetMillis, int operationCap, boolean synchronous) throws InstanceOperationException {
+        if (!this.pending.created().level().getServer().isSameThread()) {
+            throw new IllegalStateException("Dungeon generation must be coordinated on the server thread");
+        }
         if (this.complete) {
             return;
+        }
+        if (this.ticketsReleased || instance().state() != InstanceState.CREATING) {
+            throw new InstanceOperationException("Dungeon generation was cancelled");
         }
         long start = System.nanoTime();
         long budget = Math.max(1L, (long)(timeBudgetMillis * 1_000_000.0));
         int operations = 0;
         try {
+            if (this.creation == null) {
+                if (!synchronous && !this.pending.preparation().isDone()) return;
+                initialize(this.manager.acceptPreparation(this.pending, this.pending.preparation().get()));
+                // Give presentation callers a tick to publish the final coordinate frame
+                // before any structure blocks are streamed.
+                return;
+            }
             do {
                 if (this.terrainIndex < this.terrainChunks.size()) {
-                    ChunkPos chunk = this.terrainChunks.get(this.terrainIndex++);
-                    this.manager.structurePlacer().generateTerrainChunk(this.creation.created().level(), chunk.x, chunk.z);
+                    if (!synchronous && this.terrainRequestIndex < this.terrainChunks.size()
+                        && this.terrainRequestIndex < this.terrainIndex + TERRAIN_REQUEST_WINDOW) {
+                        ChunkPos requested = this.terrainChunks.get(this.terrainRequestIndex);
+                        pin(requested);
+                        var source = this.creation.created().level().getChunkSource();
+                        this.terrainRequests.put(this.terrainRequestIndex++,
+                            ((ServerChunkCacheInvoker)(Object)source).instancednotinfinite$requestChunk(
+                                requested.x, requested.z, ChunkStatus.FULL, true));
+                        operations += ESTIMATED_OPERATIONS_PER_CHUNK;
+                        continue;
+                    }
+                    ChunkPos chunk = this.terrainChunks.get(this.terrainIndex);
+                    if (synchronous) {
+                        pin(chunk);
+                        this.manager.structurePlacer().generateTerrainChunk(this.creation.created().level(), chunk.x, chunk.z);
+                    } else {
+                        var future = this.terrainRequests.get(this.terrainIndex);
+                        if (!future.isDone()) return;
+                        if (!future.join().isSuccess()) throw new IllegalStateException("Terrain chunk was unloaded: " + chunk);
+                        this.terrainRequests.remove(this.terrainIndex);
+                    }
+                    this.terrainIndex++;
                     if (this.presentationSnapshot) {
                         List<VisualBlock> added = this.snapshot.captureChunk(this.creation.created().level(), chunk, false);
                         if (!added.isEmpty()) this.batchConsumer.accept(added);
@@ -141,17 +201,23 @@ public final class DungeonGenerationJob {
             } while (operations < operationCap && System.nanoTime() - start < budget);
         } catch (Exception exception) {
             releaseTickets();
-            this.manager.failPreparedCreation(this.creation, exception);
+            if (exception instanceof InterruptedException) Thread.currentThread().interrupt();
+            this.manager.failPreparedCreation(this.pending, exception);
             throw new InstanceOperationException(
-                "Dungeon instance " + this.creation.instance().id().shortId() + " failed: " + exception.getMessage(), exception);
+                "Dungeon instance " + instance().id().shortId() + " failed: " + exception.getMessage(), exception);
         }
     }
 
+    public boolean prepared() {
+        return this.creation != null;
+    }
+
     public double progress() {
+        if (!prepared()) return 0.0;
         int total = this.terrainChunks.size() + this.structureChunks.size() * 2 + 1
             + (this.floatingRemoval == null ? 0 : this.cleanupChunks == null ? this.terrainChunks.size() : this.cleanupChunks.size());
         int done = this.terrainIndex + this.heightmapIndex + this.structureIndex + this.cleanupIndex + (this.complete ? 1 : 0);
-        return Math.min(1.0, done / (double)total);
+        return Math.min(1.0, 0.05 + 0.95 * done / (double)total);
     }
 
     public boolean complete() {
@@ -159,7 +225,7 @@ public final class DungeonGenerationJob {
     }
 
     public DungeonInstance instance() {
-        return this.creation.instance();
+        return this.pending.instance();
     }
 
     public Optional<DungeonVisualSnapshot> snapshot() {
@@ -177,7 +243,7 @@ public final class DungeonGenerationJob {
     }
 
     public int biomeFogColor() {
-        return this.creation.biomeFogColor();
+        return this.pending.biomeFogColor();
     }
 
     public BoundingBox visualBounds() {
@@ -188,11 +254,22 @@ public final class DungeonGenerationJob {
             structure.maxX() - envelope.minX(), structure.maxY() - envelope.minY(), structure.maxZ() - envelope.minZ());
     }
 
+    private void pin(ChunkPos chunk) {
+        if (this.ticketedChunks.add(chunk)) this.pending.created().level().getChunkSource().addRegionTicket(
+            GENERATION_TICKET, chunk, 0, instance().id().value());
+    }
+
+    /** Idempotent cancellation as well as normal completion cleanup. Late worker results are discarded. */
     public void releaseTickets() {
         if (this.ticketsReleased) return;
         this.ticketsReleased = true;
-        this.structureChunks.forEach(chunk -> this.creation.created().level().getChunkSource().removeRegionTicket(
-            GENERATION_TICKET, chunk, 0, this.creation.instance().id().value()));
+        this.pending.preparation().cancel(true);
+        this.terrainRequests.clear();
+        this.ticketedChunks.forEach(chunk -> this.pending.created().level().getChunkSource().removeRegionTicket(
+            GENERATION_TICKET, chunk, 0, instance().id().value()));
+        this.ticketedChunks.clear();
+        if (this.floatingRemoval != null) this.floatingRemoval.release();
+        this.manager.releaseGeneration(this);
     }
 
     private static List<ChunkPos> chunksFor(BoundingBox bounds, Integer extraX, Integer extraZ) {

@@ -151,12 +151,12 @@ public final class DungeonManifestationManager implements AutoCloseable {
         DungeonVisualSnapshot complete = snapshots.get(id);
         if (complete != null) return Optional.of(complete);
         DungeonGenerationJob job = jobs.get(id);
-        return job == null ? Optional.empty() : Optional.of(job.currentSnapshot());
+        return job == null || !job.prepared() ? Optional.empty() : Optional.of(job.currentSnapshot());
     }
 
     public Optional<net.minecraft.world.level.levelgen.structure.BoundingBox> visualBounds(UUID id) {
         DungeonGenerationJob job = jobs.get(id);
-        return job == null ? Optional.empty() : Optional.of(job.visualBounds());
+        return job == null || !job.prepared() ? Optional.empty() : Optional.of(job.visualBounds());
     }
 
     public void markItemConsumed(UUID id, CatalystConsumptionPolicy policy) throws InstanceOperationException {
@@ -237,7 +237,9 @@ public final class DungeonManifestationManager implements AutoCloseable {
             PortalSounds.playGeneration(level, value.origin());
         }
         DungeonGenerationJob job = jobs.get(value.id());
+        boolean wasPrepared = job != null && job.prepared();
         if (job != null && !job.complete()) DungeonInstanceManager.get(server).advanceGeneration(job);
+        if (job != null && !wasPrepared && job.prepared()) ManifestationNetwork.refreshBounds(this, value);
         if (job != null) {
             // Terrain generation and heightmap priming can take many seconds for a large
             // structure, but there is nothing visual to reveal during that work. The first

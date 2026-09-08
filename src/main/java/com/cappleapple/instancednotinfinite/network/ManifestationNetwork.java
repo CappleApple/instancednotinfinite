@@ -89,6 +89,15 @@ public final class ManifestationNetwork {
         }
     }
 
+    /** Replace the placeholder frame before a deferred generation job sends its first block batch. */
+    public static void refreshBounds(DungeonManifestationManager manager, DungeonManifestation value) {
+        var server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (server == null) return;
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (KNOWN.getOrDefault(player.getUUID(), Set.of()).contains(value.id())) sendFull(manager, player, value);
+        }
+    }
+
     public static void syncDungeonCatalog(ServerPlayer player) {
         send(player, dungeonCatalogPayload(player.getServer()));
     }

@@ -43,6 +43,16 @@ public final class DungeonStructurePlacer {
         long seed,
         boolean inferEnvironment
     ) throws PlacementException {
+        return prepare(StructurePreparationContext.capture(level), definition, generator, seed, inferEnvironment);
+    }
+
+    public PreparedStructure prepare(
+        StructurePreparationContext level,
+        ResolvedDungeonDefinition definition,
+        DungeonChunkGenerator generator,
+        long seed,
+        boolean inferEnvironment
+    ) throws PlacementException {
         EnvironmentType environment = definition.definition().environment();
         boolean aquatic = environment == EnvironmentType.OCEAN_SURFACE || environment == EnvironmentType.UNDERWATER
             || (inferEnvironment && (definition.biome().is(BiomeTags.IS_OCEAN) || definition.biome().is(BiomeTags.IS_RIVER)));
@@ -137,7 +147,7 @@ public final class DungeonStructurePlacer {
     }
 
     private static PreparedStructure prepareWorldgen(
-        ServerLevel level,
+        StructurePreparationContext level,
         ResolvedDungeonDefinition definition,
         DungeonChunkGenerator generator,
         long seed,
@@ -153,7 +163,7 @@ public final class DungeonStructurePlacer {
         ChunkPos startChunk = start.getChunkPos();
         int generatedSurfaceY = generator.getBaseHeight(
             startChunk.getMinBlockX() + 8, startChunk.getMinBlockZ() + 8,
-            Heightmap.Types.WORLD_SURFACE_WG, level, level.getChunkSource().randomState()) - 1;
+            Heightmap.Types.WORLD_SURFACE_WG, level, level.randomState()) - 1;
         int originalMinimumY = start.getBoundingBox().minY();
         start = fitVerticalEnvelope(level, definition, structure, start);
         BoundingBox bounds = start.getBoundingBox();
@@ -161,7 +171,7 @@ public final class DungeonStructurePlacer {
         int shiftY = bounds.minY() - originalMinimumY;
         int translatedSurfaceY = OceanSurfaceWaterline.translate(generatedSurfaceY, originalMinimumY, bounds.minY());
         BoundingBox pieceBounds = StructurePiece.createBoundingBox(start.getPieces().stream());
-        Optional<StructureFoundationAnalyzer.FoundationProfile> foundation = StructureFoundationAnalyzer.profile(level, start);
+        Optional<StructureFoundationAnalyzer.FoundationProfile> foundation = StructureFoundationAnalyzer.profile(level.registryAccess(), level.templates(), start);
         EnvironmentType environment = definition.definition().environment();
         PlacementEvidence evidence = inferEnvironment && sample != null
             ? new PlacementEvidence(environment, translatedSurfaceY,
@@ -213,7 +223,7 @@ public final class DungeonStructurePlacer {
     }
 
     private static StructureStart fitVerticalEnvelope(
-        ServerLevel level,
+        StructurePreparationContext level,
         ResolvedDungeonDefinition definition,
         Structure structure,
         StructureStart start
@@ -252,7 +262,7 @@ public final class DungeonStructurePlacer {
     }
 
     private static StructureStart findCompatibleStart(
-        ServerLevel level,
+        StructurePreparationContext level,
         ResolvedDungeonDefinition definition,
         DungeonChunkGenerator generator,
         Structure structure,
@@ -266,13 +276,14 @@ public final class DungeonStructurePlacer {
             for (int chunkX = -radius; chunkX <= radius; chunkX++) {
                 for (int chunkZ = -radius; chunkZ <= radius; chunkZ++) {
                     if (Math.max(Math.abs(chunkX), Math.abs(chunkZ)) != radius) continue;
+                    if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException("Dungeon preparation cancelled");
                     attempts++;
                     ChunkPos candidate = new ChunkPos(chunkX, chunkZ);
                     StructureStart start;
                     try (var ignored = ControlledStructureStartGeneration.begin()) {
                         start = structure.generate(
-                            level.registryAccess(), generator, generator.getBiomeSource(), level.getChunkSource().randomState(),
-                            level.getStructureManager(), seed, candidate, 0, level, holder -> true);
+                            level.registryAccess(), generator, generator.getBiomeSource(), level.randomState(),
+                            level.templates(), seed, candidate, 0, level, holder -> true);
                     }
                     if (!start.isValid()) continue;
                     if (attempts > 1) {
@@ -289,7 +300,7 @@ public final class DungeonStructurePlacer {
                 + " candidate chunks inside the dungeon radius");
     }
 
-    private static int minimumStructureY(ServerLevel level, ResolvedDungeonDefinition definition) {
+    private static int minimumStructureY(StructurePreparationContext level, ResolvedDungeonDefinition definition) {
         if (definition.definition().environment()
             != com.cappleapple.instancednotinfinite.definition.EnvironmentType.CUSTOM) {
             return Math.max(level.getMinBuildHeight(), GenerationPlan.MIN_TERRAIN_Y);
@@ -299,7 +310,7 @@ public final class DungeonStructurePlacer {
             + padding + GenerationPlan.verticalFalloffForPadding(padding);
     }
 
-    private static int maximumStructureY(ServerLevel level, ResolvedDungeonDefinition definition) {
+    private static int maximumStructureY(StructurePreparationContext level, ResolvedDungeonDefinition definition) {
         if (definition.definition().environment()
             != com.cappleapple.instancednotinfinite.definition.EnvironmentType.CUSTOM) {
             return Math.min(level.getMaxBuildHeight() - 1, GenerationPlan.MAX_TERRAIN_Y);
@@ -310,12 +321,12 @@ public final class DungeonStructurePlacer {
     }
 
     private static PreparedStructure prepareTemplate(
-        ServerLevel level,
+        StructurePreparationContext level,
         ResolvedDungeonDefinition definition,
         DungeonChunkGenerator generator,
         DungeonChunkGenerator.PlacementSample sample
     ) throws PlacementException {
-        Optional<StructureTemplate> optional = level.getStructureManager().get(definition.structureId());
+        Optional<StructureTemplate> optional = level.templates().get(definition.structureId());
         StructureTemplate template = optional.orElseThrow(
             () -> new PlacementException("Unknown structure template " + definition.structureId()));
         Vec3i size = template.getSize();
@@ -330,7 +341,7 @@ public final class DungeonStructurePlacer {
             ? Heightmap.Types.OCEAN_FLOOR_WG
             : Heightmap.Types.WORLD_SURFACE_WG;
         int naturalSurfaceY = generator.getBaseHeight(
-            0, 0, heightmap, level, level.getChunkSource().randomState()) - 1;
+            0, 0, heightmap, level, level.randomState()) - 1;
         int desiredY = GenerationPlan.usesSurfaceApproach(definition.definition().environment())
             || definition.definition().environment() == com.cappleapple.instancednotinfinite.definition.EnvironmentType.UNDERWATER
                 ? naturalSurfaceY + 1

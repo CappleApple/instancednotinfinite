@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -32,6 +33,7 @@ import net.minecraft.world.level.levelgen.structure.TemplateStructurePiece;
 import net.minecraft.world.level.levelgen.structure.pools.StructurePoolElement;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
 
 /** Reads authored template geometry to locate the real base of large multi-piece structures. */
 public final class StructureFoundationAnalyzer {
@@ -43,18 +45,23 @@ public final class StructureFoundationAnalyzer {
     }
 
     public static Optional<FoundationProfile> profile(ServerLevel level, StructureStart start) {
+        return profile(level.registryAccess(), level.getStructureManager(), start);
+    }
+
+    public static Optional<FoundationProfile> profile(RegistryAccess access, StructureTemplateManager templates, StructureStart start) {
         Map<StructureTemplate, List<BlockPos>> solidBlocks = new IdentityHashMap<>();
         Map<Integer, Set<Long>> coverageByY = new HashMap<>();
         Map<Integer, Integer> placementGroundCounts = new HashMap<>();
 
         for (StructurePiece piece : start.getPieces()) {
+            if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException("Foundation analysis cancelled");
             int placementGroundY = piece instanceof PoolElementStructurePiece poolPiece
                 ? piece.getBoundingBox().minY() + poolPiece.getGroundLevelDelta()
                 : piece.getBoundingBox().minY();
             placementGroundCounts.merge(placementGroundY, 1, Integer::sum);
             if (piece instanceof TemplateStructurePiece templatePiece) {
                 addTemplate(
-                    level,
+                    access,
                     templatePiece.template(),
                     templatePiece.templatePosition(),
                     templatePiece.placeSettings(),
@@ -62,9 +69,9 @@ public final class StructureFoundationAnalyzer {
                     coverageByY);
             } else if (piece instanceof PoolElementStructurePiece poolPiece) {
                 StructurePlaceSettings settings = new StructurePlaceSettings().setRotation(poolPiece.getRotation());
-                for (ResourceLocation templateId : templateLocations(level, poolPiece.getElement())) {
-                    level.getStructureManager().get(templateId).ifPresent(template -> addTemplate(
-                        level, template, poolPiece.getPosition(), settings, solidBlocks, coverageByY));
+                for (ResourceLocation templateId : templateLocations(access, poolPiece.getElement())) {
+                    templates.get(templateId).ifPresent(template -> addTemplate(
+                        access, template, poolPiece.getPosition(), settings, solidBlocks, coverageByY));
                 }
             }
         }
@@ -81,21 +88,21 @@ public final class StructureFoundationAnalyzer {
     }
 
     private static void addTemplate(
-        ServerLevel level,
+        RegistryAccess access,
         StructureTemplate template,
         BlockPos origin,
         StructurePlaceSettings settings,
         Map<StructureTemplate, List<BlockPos>> solidBlocks,
         Map<Integer, Set<Long>> coverageByY
     ) {
-        List<BlockPos> blocks = solidBlocks.computeIfAbsent(template, ignored -> readSolidBlocks(level, template));
+        List<BlockPos> blocks = solidBlocks.computeIfAbsent(template, ignored -> readSolidBlocks(access, template));
         for (BlockPos local : blocks) {
             BlockPos world = StructureTemplate.calculateRelativePosition(settings, local).offset(origin);
             coverageByY.computeIfAbsent(world.getY(), ignored -> new HashSet<>()).add(BlockPos.asLong(world.getX(), 0, world.getZ()));
         }
     }
 
-    private static List<BlockPos> readSolidBlocks(ServerLevel level, StructureTemplate template) {
+    private static List<BlockPos> readSolidBlocks(RegistryAccess access, StructureTemplate template) {
         CompoundTag data = template.save(new CompoundTag());
         ListTag palette = data.getList("palette", Tag.TAG_COMPOUND);
         if (palette.isEmpty()) {
@@ -106,7 +113,7 @@ public final class StructureFoundationAnalyzer {
         }
         List<BlockState> states = new ArrayList<>(palette.size());
         for (Tag value : palette) {
-            states.add(NbtUtils.readBlockState(level.registryAccess().lookupOrThrow(Registries.BLOCK), (CompoundTag) value));
+            states.add(NbtUtils.readBlockState(access.lookupOrThrow(Registries.BLOCK), (CompoundTag) value));
         }
 
         List<BlockPos> result = new ArrayList<>();
@@ -127,10 +134,10 @@ public final class StructureFoundationAnalyzer {
         return List.copyOf(result);
     }
 
-    private static Set<ResourceLocation> templateLocations(ServerLevel level, StructurePoolElement element) {
+    private static Set<ResourceLocation> templateLocations(RegistryAccess access, StructurePoolElement element) {
         Set<ResourceLocation> result = new LinkedHashSet<>();
         try {
-            DynamicOps<Tag> ops = level.registryAccess().createSerializationContext(NbtOps.INSTANCE);
+            DynamicOps<Tag> ops = access.createSerializationContext(NbtOps.INSTANCE);
             StructurePoolElement.CODEC.encodeStart(ops, element).resultOrPartial(message ->
                 InstancedNotInfinite.LOGGER.debug("Could not inspect structure pool element geometry: {}", message))
                 .ifPresent(tag -> collectLocations(tag, result));
