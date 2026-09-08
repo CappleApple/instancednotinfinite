@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.7 — 2026-09-08
+
+### Fixed
+
+- Recover disconnected players before loading their saved entity position, including after their dungeon instance has closed or its return record is missing. Obsolete vehicle and Sable login tracking data are cleared during instance recovery.
+- Portal placement, activation, item offerings, nearby-player synchronization, sounds, holograms, and targeting now account for Sable contraption coordinates, rotation, and movement. Saved portal returns follow the original contraption and use the configured fallback if it is unavailable.
+- Dark Doppelganger's dimension-unload and shutdown cleanup now scans loaded entities instead of issuing the oversized spatial query rejected by Sable.
+
 ## 1.1.6 — 2026-09-08
 
 ### Fixed

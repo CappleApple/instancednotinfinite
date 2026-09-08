@@ -17,6 +17,11 @@ base {
 
 repositories {
     maven {
+        name = 'SableCompanion'
+        url = 'https://maven.ryanhcode.dev/releases'
+        content { includeGroup 'dev.ryanhcode.sable-companion' }
+    }
+    maven {
         name = 'BlameJared'
         url = 'https://maven.blamejared.com'
         content { includeGroup 'mezz.jei' }
@@ -110,6 +115,9 @@ tasks.named('processTestFixturesResources', ProcessResources).configure {
 }
 
 dependencies {
+    jarJar(api('dev.ryanhcode.sable-companion:sable-companion-common-1.21.1:[1.6.0,2.0.0)')) {
+        version { prefer('1.6.0') }
+    }
     compileOnly "mezz.jei:jei-1.21.1-common-api:${jei_version}"
     compileOnly "mezz.jei:jei-1.21.1-neoforge-api:${jei_version}"
     compileOnly "dev.emi:emi-neoforge:${emi_version}:api"
@@ -139,6 +147,7 @@ tasks.named('test', Test).configure {
 
 tasks.named('jar', Jar).configure {
     includeEmptyDirs = false
+    from('THIRD_PARTY_LICENSES') { into('META-INF/licenses') }
     from('LICENSE') {
         into('META-INF')
         rename { 'LICENSE_instancednotinfinite' }
@@ -212,5 +221,20 @@ idea {
     module {
         downloadSources = true
         downloadJavadoc = true
+    }
+}
+
+// Example: -PsableRuntimeJar=C:/mods/sable.jar -PgameTestNamespaces=instancednotinfinite_sable,instancednotinfinite_integration
+if (providers.gradleProperty('sableRuntimeJar').isPresent()) {
+    def sableJar = files(providers.gradleProperty('sableRuntimeJar').get())
+    sourceSets {
+        sableTestFixtures {
+            compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath + sableJar
+        }
+    }
+    neoForge.mods.named(mod_id) { sourceSet(sourceSets.sableTestFixtures) }
+    dependencies { localRuntime sableJar }
+    providers.gradleProperty('compatRuntimeDir').orNull?.with { dir ->
+        dependencies { localRuntime fileTree(dir: dir, include: '*.jar') }
     }
 }

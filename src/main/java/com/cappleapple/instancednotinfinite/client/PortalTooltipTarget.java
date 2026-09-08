@@ -80,9 +80,8 @@ public record PortalTooltipTarget(
                 centerY = value.origin().getY() + 1.5 + hover;
                 renderedRotation = -Math.round((float)(time * 0.35));
             }
-            var distance = PortalTargetingMath.rayDistance(
-                cameraPosition.x, cameraPosition.y, cameraPosition.z,
-                look.x(), look.y(), look.z(),
+            var distance = SableRenderCoordinates.rayDistance(
+                minecraft.level, value.origin(), cameraPosition, new Vec3(look.x(), look.y(), look.z()),
                 value.origin().getX() + 0.5, centerY, value.origin().getZ() + 0.5,
                 renderedRotation, width, height, depth, maximumDistance);
             if (distance.isPresent() && distance.getAsDouble() < closestDistance) {
@@ -107,9 +106,8 @@ public record PortalTooltipTarget(
             if (value.state() != ManifestationState.PORTAL_OPEN
                 && value.state() != ManifestationState.PORTAL_OPENING
                 && value.state() != ManifestationState.CLOSING) continue;
-            var distance = PortalTargetingMath.rayDistance(
-                cameraPosition.x, cameraPosition.y, cameraPosition.z,
-                look.x(), look.y(), look.z(),
+            var distance = SableRenderCoordinates.rayDistance(
+                minecraft.level, value.origin(), cameraPosition, new Vec3(look.x(), look.y(), look.z()),
                 value.origin().getX() + 0.5, value.origin().getY() + 1.5, value.origin().getZ() + 0.5,
                 value.rotationDegrees(),
                 value.portalWidth() + PORTAL_TARGET_PADDING * 2.0F,
@@ -124,9 +122,8 @@ public record PortalTooltipTarget(
             }
         }
         for (ManifestationPortalBlockEntity portal : ManifestationPortalBlockEntity.loadedIn(minecraft.level)) {
-            var distance = PortalTargetingMath.rayDistance(
-                cameraPosition.x, cameraPosition.y, cameraPosition.z,
-                look.x(), look.y(), look.z(),
+            var distance = SableRenderCoordinates.rayDistance(
+                minecraft.level, portal.getBlockPos(), cameraPosition, new Vec3(look.x(), look.y(), look.z()),
                 portal.getBlockPos().getX() + 0.5, portal.getBlockPos().getY() + 1.5, portal.getBlockPos().getZ() + 0.5,
                 portal.rotationDegrees(),
                 portal.portalWidth() + PORTAL_TARGET_PADDING * 2.0F,

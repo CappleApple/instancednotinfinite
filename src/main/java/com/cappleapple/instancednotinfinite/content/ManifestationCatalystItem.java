@@ -1,5 +1,6 @@
 package com.cappleapple.instancednotinfinite.content;
 
+import com.cappleapple.instancednotinfinite.compat.SableCoordinates;
 import com.cappleapple.instancednotinfinite.api.DungeonManifestationApi;
 import com.cappleapple.instancednotinfinite.api.ManifestationView;
 import com.cappleapple.instancednotinfinite.config.ServerConfig;
@@ -60,7 +61,7 @@ public final class ManifestationCatalystItem extends Item {
         Direction face = context.getClickedFace();
         BlockPos origin = context.getClickedPos().relative(face);
         int rotationDegrees = com.cappleapple.instancednotinfinite.manifestation.PortalRotation.normalize(
-            Math.round(player.getYRot()));
+            SableCoordinates.localYaw(level, origin, player.getYRot()));
         try {
             InstanceLifecycleOverrides lifecycle = context.getItemInHand().get(ModContent.INSTANCE_LIFECYCLE.get());
             if (lifecycle == null) lifecycle = InstanceLifecycleOverrides.empty();

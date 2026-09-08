@@ -28,6 +28,7 @@ public final class PortalCompletionOffering {
         String selector = ServerConfig.INSTANCE.portalCompletionOffering.get();
         for (ServerLevel level : server.getAllLevels()) {
             for (ManifestationPortalBlockEntity portal : ManifestationPortalBlockEntity.loadedIn(level)) {
+                if (!com.cappleapple.instancednotinfinite.compat.SableCoordinates.available(level, portal.getBlockPos())) continue;
                 Optional<InstanceId> instanceId = completableInstance(server, portal);
                 if (instanceId.isEmpty()) continue;
                 for (ItemEntity item : level.getEntitiesOfClass(

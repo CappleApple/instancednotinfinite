@@ -1,5 +1,6 @@
 package com.cappleapple.instancednotinfinite.content;
 
+import com.cappleapple.instancednotinfinite.compat.SableCoordinates;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -112,11 +113,16 @@ public final class ManifestationPortalBlockEntity extends BlockEntity {
     public int portalInnerColor() { return portalInnerColor; }
     public int portalOuterColor() { return portalOuterColor; }
     public AABB interactionBounds() {
-        return PortalInteractionShape.bounds(worldPosition, rotationDegrees, portalWidth, portalHeight, portalDepth);
+        return SableCoordinates.worldBounds(level, worldPosition,
+            PortalInteractionShape.bounds(worldPosition, rotationDegrees, portalWidth, portalHeight, portalDepth));
     }
     public boolean intersects(AABB bounds) {
-        return PortalInteractionShape.intersects(
-            worldPosition, rotationDegrees, portalWidth, portalHeight, portalDepth, bounds);
+        if (!SableCoordinates.available(level, worldPosition)) return false;
+        var subLevel = SableCoordinates.subLevel(level, worldPosition);
+        return subLevel == null ? PortalInteractionShape.intersects(
+            worldPosition, rotationDegrees, portalWidth, portalHeight, portalDepth, bounds)
+            : com.cappleapple.instancednotinfinite.compat.TransformedPortalShape.intersects(
+                subLevel.logicalPose(), worldPosition, rotationDegrees, portalWidth, portalHeight, portalDepth, bounds);
     }
 
     /** Loaded endpoint anchors, used client-side to target the complete rendered portal instead of only its block. */

@@ -75,6 +75,8 @@ JEI and EMI receive every exposed exact-target catalyst plus every configured st
 
 Use the item on a replaceable portal location. `catalystConsumptionPolicy` supports `ON_ACTIVATION`, `ON_SUCCESS`, and `NEVER`. Survival catalysts are escrowed immediately for both consuming modes; `ON_SUCCESS` is always restored if creation fails, while `ON_ACTIVATION` follows `refundOnFailure`. The policy and refund marker are persistent, so a logged-out owner receives an owed refund on the next login without duplication.
 
+Sable contraptions are supported through the bundled Sable Companion API; Sable itself remains optional. Place the catalyst on an already assembled contraption to anchor its hologram and portal to that contraption. Portal contact, offerings, sounds, targeting, and network range checks use its current world pose. Saved returns retain the contraption's identity and local position, so movement while a player is inside the dungeon is reflected when they return. If the original contraption is unavailable, the configured safe return fallback is used. Reconnecting from an instance is recovered before vanilla loads the saved position, including when that instance has already been deleted.
+
 Throw one item matching `completionOffering` into either endpoint of an open portal to mark that portal's exact dungeon instance complete. The default is `minecraft:blaze_powder`; prefix a configured resource ID with `#` to accept an item tag instead. The server checks the full rendered portal volume, completes the instance before consuming anything, and removes exactly one matching item from the dropped stack.
 
 There is deliberately no built-in ritual or multiblock. Quests, bosses, structures, KubeJS adapters, and other mods should call the public manifestation API; the item and commands are reference triggers using that same path.
@@ -512,3 +514,13 @@ For implementation research, runtime findings, and compatibility notes, see [DEV
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+### Sable regression tests
+
+Supply a local Sable 2.0.5 JAR to include the optional real-mod fixtures:
+
+```powershell
+.\gradlew.bat runGameTestServer "-PsableRuntimeJar=C:/mods/sable-neoforge-1.21.1-2.0.5.jar" "-PgameTestNamespaces=instancednotinfinite_sable,instancednotinfinite_integration"
+```
+
+`-PcompatRuntimeDir=C:/mods/compat-test` additionally loads the JARs in that directory. Including Dark Doppelganger and its required dependencies enables the direct minion-unload regression. These fixture classes and external mod JARs are excluded from the release artifact.

@@ -1,5 +1,6 @@
 package com.cappleapple.instancednotinfinite.network;
 
+import com.cappleapple.instancednotinfinite.compat.SableCoordinates;
 import com.cappleapple.instancednotinfinite.InstancedNotInfinite;
 import com.cappleapple.instancednotinfinite.config.ServerConfig;
 import com.cappleapple.instancednotinfinite.definition.DungeonDefinitionRegistry;
@@ -75,7 +76,8 @@ public final class ManifestationNetwork {
         double radiusSquared = Math.pow(ServerConfig.INSTANCE.manifestationRenderDistance.get(), 2);
         for (DungeonManifestation value : manager.values()) {
             boolean inRange = value.originDimension().equals(player.level().dimension().location())
-                && value.origin().distToCenterSqr(player.position()) <= radiusSquared
+                && SableCoordinates.matches(player.level(), value.origin(), value.originSubLevel())
+                && SableCoordinates.distanceSquared(player.level(), value.origin().getCenter(), player.position()) <= radiusSquared
                 && !value.state().terminal();
             if (!inRange) continue;
             nearby.add(value.id());
@@ -177,12 +179,13 @@ public final class ManifestationNetwork {
     public static void removeForNearby(DungeonManifestation value) {
         net.minecraft.server.MinecraftServer server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
         if (server == null) return;
-        ServerLevel level = server.getLevel(net.minecraft.resources.ResourceKey.create(
-            net.minecraft.core.registries.Registries.DIMENSION, value.originDimension()));
-        if (level != null) sendNear(
-            level, null, value.origin().getX(), value.origin().getY(), value.origin().getZ(),
-            ServerConfig.INSTANCE.manifestationRenderDistance.get(), new ManifestationRemovePayload(value.id()));
-        KNOWN.values().forEach(ids -> ids.remove(value.id()));
+        // A moving or unloaded contraption may already be outside its old broadcast radius.
+        for (var entry : KNOWN.entrySet()) {
+            if (entry.getValue().remove(value.id())) {
+                ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+                if (player != null) send(player, new ManifestationRemovePayload(value.id()));
+            }
+        }
     }
 
     private static void sendFull(DungeonManifestationManager manager, ServerPlayer player, DungeonManifestation value) {
@@ -276,10 +279,13 @@ public final class ManifestationNetwork {
         double radius,
         CustomPacketPayload payload
     ) {
+        net.minecraft.world.phys.Vec3 origin = new net.minecraft.world.phys.Vec3(x, y, z);
+        if (!SableCoordinates.available(level, net.minecraft.core.BlockPos.containing(origin))) return;
+        net.minecraft.world.phys.Vec3 world = SableCoordinates.toWorld(level, origin);
         double radiusSquared = radius * radius;
         level.players().stream()
             .filter(player -> player != excluded)
-            .filter(player -> player.distanceToSqr(x, y, z) <= radiusSquared)
+            .filter(player -> player.distanceToSqr(world) <= radiusSquared)
             .forEach(player -> send(player, payload));
     }
 }

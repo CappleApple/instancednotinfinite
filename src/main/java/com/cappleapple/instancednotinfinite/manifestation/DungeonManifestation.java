@@ -14,6 +14,7 @@ public final class DungeonManifestation {
     private final UUID id;
     private final ResourceLocation originDimension;
     private final BlockPos origin;
+    private UUID originSubLevel;
     private final int rotationDegrees;
     private final InstanceId instanceId;
     private final ResourceLocation dungeonId;
@@ -127,6 +128,8 @@ public final class DungeonManifestation {
     public UUID id() { return id; }
     public ResourceLocation originDimension() { return originDimension; }
     public BlockPos origin() { return origin; }
+    public Optional<UUID> originSubLevel() { return Optional.ofNullable(originSubLevel); }
+    public void setOriginSubLevel(Optional<UUID> id) { originSubLevel = id.orElse(null); }
     public int rotationDegrees() { return rotationDegrees; }
     public Direction orientation() { return PortalRotation.nearestDirection(rotationDegrees); }
     public InstanceId instanceId() { return instanceId; }
@@ -156,6 +159,7 @@ public final class DungeonManifestation {
         tag.putUUID("Id", id);
         tag.putString("OriginDimension", originDimension.toString());
         tag.putLong("Origin", origin.asLong());
+        if (originSubLevel != null) tag.putUUID("OriginSubLevel", originSubLevel);
         tag.putInt("RotationDegrees", rotationDegrees);
         tag.putString("Orientation", orientation().getName());
         tag.putUUID("InstanceId", instanceId.value());
@@ -218,6 +222,7 @@ public final class DungeonManifestation {
                     tag.contains("PortalInnerColor", Tag.TAG_INT) ? tag.getInt("PortalInnerColor") : PortalColor.parseRgba("#010104F5"),
                     tag.contains("PortalOuterColor", Tag.TAG_INT) ? tag.getInt("PortalOuterColor") : PortalColor.parseRgba("#2AAAFF73")));
             result.state = ManifestationState.valueOf(tag.getString("State"));
+            result.originSubLevel = tag.hasUUID("OriginSubLevel") ? tag.getUUID("OriginSubLevel") : null;
             result.stateChangedAtGameTime = tag.getLong("StateChangedAt");
             result.generationProgress = tag.getDouble("GenerationProgress");
             result.animationProgress = tag.getDouble("AnimationProgress");

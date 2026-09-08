@@ -20,12 +20,11 @@ public final class ManifestationWorldRenderer {
         float partial = event.getPartialTick().getGameTimeDeltaPartialTick(true);
         for (ClientManifestation value : ClientManifestationStore.values()) {
             if (!value.dimension().equals(minecraft.level.dimension().location())) continue;
+            if (!com.cappleapple.instancednotinfinite.compat.SableCoordinates.available(minecraft.level, value.origin())) continue;
             PoseStack pose = event.getPoseStack();
             pose.pushPose();
-            pose.translate(
-                value.origin().getX() + 0.5 - camera.x,
-                value.origin().getY() + 1.5 - camera.y,
-                value.origin().getZ() + 0.5 - camera.z);
+            SableRenderCoordinates.translate(pose, minecraft.level, value.origin(),
+                Vec3.atBottomCenterOf(value.origin()).add(0, 1.5, 0), camera);
             if (value.state() == ManifestationState.PORTAL_OPEN) {
                 renderPortal(value, pose, event, minecraft.level.getGameTime() + partial, 1.0F, 0.0F);
             } else if (value.state() == ManifestationState.PORTAL_OPENING) {

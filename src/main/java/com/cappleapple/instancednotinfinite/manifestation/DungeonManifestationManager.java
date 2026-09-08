@@ -1,5 +1,6 @@
 package com.cappleapple.instancednotinfinite.manifestation;
 
+import com.cappleapple.instancednotinfinite.compat.SableCoordinates;
 import com.cappleapple.instancednotinfinite.InstancedNotInfinite;
 import com.cappleapple.instancednotinfinite.api.event.DungeonManifestationReadyEvent;
 import com.cappleapple.instancednotinfinite.api.event.DungeonManifestationStartingEvent;
@@ -106,6 +107,7 @@ public final class DungeonManifestationManager implements AutoCloseable {
             System.currentTimeMillis(), level.getGameTime(), duration,
             PortalAppearanceResolver.configured(
                 job.instance().definition(), java.util.OptionalInt.of(job.biomeFogColor())));
+        manifestation.setOriginSubLevel(SableCoordinates.subLevelId(level, origin));
         manifestation.transition(ManifestationState.GENERATING, level.getGameTime());
         this.jobs.put(id, job);
         this.data.put(manifestation);
@@ -137,7 +139,9 @@ public final class DungeonManifestationManager implements AutoCloseable {
             if (value.state() != ManifestationState.PORTAL_OPEN
                 || !value.originDimension().equals(player.level().dimension().location())) continue;
             ServerLevel level = player.serverLevel();
-            if (level.getBlockEntity(value.origin()) instanceof ManifestationPortalBlockEntity portal
+            if (SableCoordinates.matches(level, value.origin(), value.originSubLevel())
+                && level.getChunkSource().getChunkNow(value.origin().getX() >> 4, value.origin().getZ() >> 4) != null
+                && level.getBlockEntity(value.origin()) instanceof ManifestationPortalBlockEntity portal
                 && portal.manifestationId().filter(value.id()::equals).isPresent()
                 && portal.intersects(player.getBoundingBox())) {
                 com.cappleapple.instancednotinfinite.content.ManifestationPortalBlock.tryActivate(
@@ -272,6 +276,12 @@ public final class DungeonManifestationManager implements AutoCloseable {
         }
         if (value.state() == ManifestationState.COLLAPSING
             && now - value.stateChangedAtGameTime() >= ServerConfig.INSTANCE.collapseDurationTicks.get()) {
+            if (!SableCoordinates.matches(level, value.origin(), value.originSubLevel())) {
+                if (shouldClosePortal(value, now)) {
+                    throw new InstanceOperationException("The source contraption was unavailable before the dungeon expired");
+                }
+                return;
+            }
             openPortal(level, value);
             value.transition(ManifestationState.PORTAL_OPENING, now);
             PortalSounds.playOpen(level, value.origin());
@@ -401,7 +411,11 @@ public final class DungeonManifestationManager implements AutoCloseable {
     }
 
     private void validateOrigin(ServerLevel level, BlockPos origin) throws InstanceOperationException {
-        if (!level.getWorldBorder().isWithinBounds(origin)) {
+        if (!SableCoordinates.available(level, origin)) {
+            throw new InstanceOperationException("The portal's Sable contraption is not loaded");
+        }
+        BlockPos worldOrigin = BlockPos.containing(SableCoordinates.toWorld(level, origin.getCenter()));
+        if (!level.getWorldBorder().isWithinBounds(worldOrigin)) {
             throw new InstanceOperationException("Manifestation origin is outside the world border");
         }
         if (!level.getBlockState(origin).canBeReplaced() || !level.getBlockState(origin.above()).canBeReplaced()) {
@@ -411,11 +425,13 @@ public final class DungeonManifestationManager implements AutoCloseable {
         boolean occupied = data.values().stream()
             .filter(value -> value.originDimension().equals(level.dimension().location()))
             .filter(value -> !value.state().terminal())
-            .anyMatch(value -> value.origin().distManhattan(origin) <= separation);
+            .anyMatch(value -> SableCoordinates.available(level, value.origin())
+                && SableCoordinates.distanceSquared(level, value.origin().getCenter(), origin.getCenter()) <= separation * separation);
         if (occupied) throw new InstanceOperationException("Another manifestation already occupies this portal area");
     }
 
     private void openPortal(ServerLevel level, DungeonManifestation value) {
+        if (!SableCoordinates.matches(level, value.origin(), value.originSubLevel())) return;
         level.setBlock(value.origin(), ModContent.MANIFESTATION_PORTAL.get().defaultBlockState(), 3);
         if (level.getBlockEntity(value.origin()) instanceof ManifestationPortalBlockEntity portal) {
             portal.bind(
@@ -431,6 +447,7 @@ public final class DungeonManifestationManager implements AutoCloseable {
     }
 
     private void removePortal(ServerLevel level, DungeonManifestation value) {
+        if (!SableCoordinates.matches(level, value.origin(), value.originSubLevel())) return;
         if (level.getBlockEntity(value.origin()) instanceof ManifestationPortalBlockEntity portal
             && portal.manifestationId().filter(value.id()::equals).isPresent()) {
             level.removeBlock(value.origin(), false);

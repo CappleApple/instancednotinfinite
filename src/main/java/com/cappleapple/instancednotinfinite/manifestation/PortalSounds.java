@@ -1,5 +1,6 @@
 package com.cappleapple.instancednotinfinite.manifestation;
 
+import com.cappleapple.instancednotinfinite.compat.SableCoordinates;
 import com.cappleapple.instancednotinfinite.InstancedNotInfinite;
 import com.cappleapple.instancednotinfinite.config.ServerConfig;
 import java.util.Optional;
@@ -32,12 +33,12 @@ public final class PortalSounds {
     }
 
     public static void playAmbient(Level level, BlockPos pos, RandomSource random) {
+        if (!SableCoordinates.available(level, pos)) return;
+        var world = SableCoordinates.toWorld(level, pos.getCenter());
         float volume = configuredVolume(ServerConfig.INSTANCE.portalAmbientSoundVolume);
         if (volume <= 0.0F) return;
         resolve(ServerConfig.INSTANCE.portalAmbientSound).ifPresent(sound -> level.playLocalSound(
-            pos.getX() + 0.5,
-            pos.getY() + 0.5,
-            pos.getZ() + 0.5,
+            world.x, world.y, world.z,
             sound,
             SoundSource.BLOCKS,
             volume,
@@ -51,7 +52,10 @@ public final class PortalSounds {
         resolve(ServerConfig.INSTANCE.portalWalkThroughSound).ifPresent(sound -> {
             // Nearby observers hear the departure at the portal; the traveler receives a
             // targeted copy at arrival so the dimension switch cannot swallow it.
-            departedLevel.playSound(player, departedPos, sound, SoundSource.BLOCKS, volume, 1.0F);
+            if (SableCoordinates.available(departedLevel, departedPos)) {
+                var world = SableCoordinates.toWorld(departedLevel, departedPos.getCenter());
+                departedLevel.playSound(player, world.x, world.y, world.z, sound, SoundSource.BLOCKS, volume, 1.0F);
+            }
             player.playNotifySound(sound, SoundSource.BLOCKS, volume, 1.0F);
         });
     }
@@ -71,10 +75,12 @@ public final class PortalSounds {
         ModConfigSpec.DoubleValue configuredVolume,
         float pitch
     ) {
+        if (!SableCoordinates.available(level, pos)) return;
+        var world = SableCoordinates.toWorld(level, pos.getCenter());
         float volume = configuredVolume(configuredVolume);
         if (volume <= 0.0F) return;
         resolve(configuredSound).ifPresent(sound ->
-            level.playSound(null, pos, sound, SoundSource.BLOCKS, volume, pitch));
+            level.playSound(null, world.x, world.y, world.z, sound, SoundSource.BLOCKS, volume, pitch));
     }
 
     private static float configuredVolume(ModConfigSpec.DoubleValue configuredVolume) {

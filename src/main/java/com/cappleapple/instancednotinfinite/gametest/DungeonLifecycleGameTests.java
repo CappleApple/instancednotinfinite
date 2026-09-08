@@ -976,6 +976,69 @@ public final class DungeonLifecycleGameTests {
             .thenSucceed();
     }
 
+    @GameTest(templateNamespace = "minecraft", template = TEST_TEMPLATE, timeoutTicks = 400)
+    public static void reconnectAfterInstanceDeleted(GameTestHelper helper) throws InstanceOperationException {
+        MinecraftServer server = helper.getLevel().getServer();
+        DungeonInstanceManager manager = DungeonInstanceManager.get(server);
+        ServerPlayer disconnected = mockServerPlayer(server, helper.getLevel(), "ini-test-deleted-login");
+        ServerPlayer remaining = mockServerPlayer(server, helper.getLevel(), "ini-test-last-visitor");
+        GameProfile profile = disconnected.getGameProfile();
+        BlockPos returnPos = helper.absolutePos(new BlockPos(3, 2, 3));
+        helper.getLevel().setBlock(returnPos.below(), Blocks.STONE.defaultBlockState(), 3);
+        helper.getLevel().removeBlock(returnPos, false);
+        helper.getLevel().removeBlock(returnPos.above(), false);
+        disconnected.teleportTo(helper.getLevel(), returnPos.getX() + 0.5, returnPos.getY(), returnPos.getZ() + 0.5, 42, 0);
+        DungeonInstance instance = manager.create(ResourceLocation.fromNamespaceAndPath(InstancedNotInfinite.MOD_ID, "surface_igloo"));
+        manager.enter(disconnected, instance.id());
+        manager.enter(remaining, instance.id());
+        server.getPlayerList().remove(disconnected);
+        helper.assertTrue(manager.leave(remaining), "Last online visitor could not leave");
+        server.getPlayerList().remove(remaining);
+        manager.delete(instance.id());
+        helper.startSequence()
+            .thenIdle(20)
+            .thenWaitUntil(() -> helper.assertTrue(manager.get(instance.id()).isEmpty(), "Waiting for deletion before reconnect"))
+            .thenExecute(() -> {
+                helper.assertTrue(server.getLevel(net.minecraft.resources.ResourceKey.create(
+                    net.minecraft.core.registries.Registries.DIMENSION, instance.dimensionId())) == null,
+                    "Closed dimension was still registered");
+                ServerPlayer reconnected = reconnect(server, helper.getLevel(), profile);
+                try {
+                    helper.assertTrue(reconnected.serverLevel() == helper.getLevel(), "Rejoined in the wrong dimension");
+                    helper.assertTrue(reconnected.blockPosition().equals(returnPos), "Deleted-instance login lost the original return position");
+                    helper.assertTrue(com.cappleapple.instancednotinfinite.player.PlayerReturnSavedData.get(server)
+                        .get(profile.getId()).isEmpty(), "Successful recovery did not acknowledge its saved return");
+                } finally {
+                    server.getPlayerList().remove(reconnected);
+                }
+            })
+            .thenSucceed();
+    }
+
+    @GameTest(templateNamespace = "minecraft", template = TEST_TEMPLATE)
+    public static void missingReturnRecoversBeforeEntityPositionLoads(GameTestHelper helper) {
+        MinecraftServer server = helper.getLevel().getServer();
+        CommonListenerCookie cookie = CommonListenerCookie.createInitial(new GameProfile(UUID.randomUUID(), "ini-test-lost-return"), false);
+        ServerPlayer player = new ServerPlayer(server, helper.getLevel(), cookie.gameProfile(), cookie.clientInformation());
+        net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
+        player.saveWithoutId(tag);
+        tag.putString("Dimension", "instancednotinfinite:instances/deleted");
+        net.minecraft.nbt.ListTag position = new net.minecraft.nbt.ListTag();
+        position.add(net.minecraft.nbt.DoubleTag.valueOf(29_000_000));
+        position.add(net.minecraft.nbt.DoubleTag.valueOf(-200));
+        position.add(net.minecraft.nbt.DoubleTag.valueOf(29_000_000));
+        tag.put("Pos", position);
+        tag.putUUID("LoginPoint", UUID.randomUUID());
+        tag.put("RootVehicle", new net.minecraft.nbt.CompoundTag());
+        tag.putFloat("FallDistance", 1000);
+        player.load(tag);
+        helper.assertTrue(player.blockPosition().distManhattan(server.overworld().getSharedSpawnPos()) <= 2,
+            "Missing return data left instance coordinates in the overworld");
+        helper.assertFalse(tag.contains("LoginPoint") || tag.contains("RootVehicle"), "Obsolete Sable or vehicle login state survived recovery");
+        helper.assertTrue(player.fallDistance == 0, "Recovery retained fall damage");
+        helper.succeed();
+    }
+
     private static void assertResolutionFails(GameTestHelper helper, DungeonDefinition definition, String scenario) {
         try {
             DefinitionResolver.resolve(

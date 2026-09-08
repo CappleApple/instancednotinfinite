@@ -20,6 +20,9 @@ public final class DistantHorizonsMixinPlugin implements IMixinConfigPlugin {
         if (mixinClassName.contains(".compat.Mowzie")) {
             return LoadingModList.get().getModFileById("mowziesmobs") != null;
         }
+        if (mixinClassName.contains(".compat.DarkDoppelganger")) {
+            return LoadingModList.get().getModFileById("darkdoppelganger") != null;
+        }
         return true;
     }
 
