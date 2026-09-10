@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.8 — 2026-09-09
+
+### Fixed
+
+- Ancient Cities now generate inside a hollow Deep Dark cavern with a deepslate shell, sculk floor patches, and an open cave approach instead of being encased in solid rock. The cavern follows the generated city bounds and is carved during background terrain generation.
+- Keep the cavern floor level beneath Ancient City foundations and nearby entrances so floor variation does not leave buildings floating above the ground.
+- Hologram reveals now span the full loading bar using the visible model geometry, fixing animation modes that finished displaying the structure long before its portal could open.
+- Finished dungeon manifestations now reliably collapse and open their portal. Floating-point progress rounding can no longer leave a ready dungeon stuck at a displayed 100%.
+
 ## 1.1.7 — 2026-09-08
 
 ### Fixed

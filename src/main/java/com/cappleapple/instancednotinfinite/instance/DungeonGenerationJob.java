@@ -217,7 +217,7 @@ public final class DungeonGenerationJob {
         int total = this.terrainChunks.size() + this.structureChunks.size() * 2 + 1
             + (this.floatingRemoval == null ? 0 : this.cleanupChunks == null ? this.terrainChunks.size() : this.cleanupChunks.size());
         int done = this.terrainIndex + this.heightmapIndex + this.structureIndex + this.cleanupIndex + (this.complete ? 1 : 0);
-        return Math.min(1.0, 0.05 + 0.95 * done / (double)total);
+        return GenerationProgress.fraction(done, total, this.complete);
     }
 
     public boolean complete() {

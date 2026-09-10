@@ -9,7 +9,6 @@ import com.cappleapple.instancednotinfinite.network.ManifestationProgressPayload
 import com.cappleapple.instancednotinfinite.network.ManifestationStartPayload;
 import com.cappleapple.instancednotinfinite.snapshot.VisualLayer;
 import java.util.LinkedHashMap;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -42,7 +41,6 @@ public final class ClientManifestation {
     private int scoreMaxX;
     private int scoreMaxY;
     private int scoreMaxZ;
-    private double scoreFloor = Double.NaN;
     private float maximumWidth;
     private float maximumHeight;
     private float maximumDepth;
@@ -167,8 +165,7 @@ public final class ClientManifestation {
     }
 
     void add(ManifestationBlocksPayload payload) {
-        List<ClientVisualBlock> incoming = new ArrayList<>(payload.blocks().size());
-        double batchMinimum = Double.POSITIVE_INFINITY;
+        boolean changed = false;
         for (ManifestationBlocksPayload.Entry entry : payload.blocks()) {
             BlockState state = Block.BLOCK_STATE_REGISTRY.byId(entry.blockStateId());
             if (state == null || state.isAir()) continue;
@@ -177,16 +174,7 @@ public final class ClientManifestation {
                 position.getX(), position.getY(), position.getZ(),
                 scoreMinX, scoreMinY, scoreMinZ, scoreMaxX, scoreMaxY, scoreMaxZ,
                 animationMode, animationSeed);
-            incoming.add(new ClientVisualBlock(position, state, entry.layer(), rawScore));
-            if (entry.layer() == VisualLayer.STRUCTURE) batchMinimum = Math.min(batchMinimum, rawScore);
-        }
-        if (Double.isNaN(scoreFloor) && Double.isFinite(batchMinimum)) scoreFloor = batchMinimum;
-
-        boolean changed = false;
-        for (ClientVisualBlock raw : incoming) {
-            double score = ManifestationScoreMath.normalizeRevealScore(
-                raw.score(), Double.isNaN(scoreFloor) ? 0.0 : scoreFloor);
-            ClientVisualBlock block = new ClientVisualBlock(raw.position(), raw.state(), raw.layer(), score);
+            ClientVisualBlock block = new ClientVisualBlock(position, state, entry.layer(), rawScore);
             ClientVisualBlock previous = byPosition.put(block.position().asLong(), block);
             changed |= !block.equals(previous);
             if (block.layer() == VisualLayer.STRUCTURE) includeVisualPosition(block.position());
@@ -212,7 +200,7 @@ public final class ClientManifestation {
     void tick() {
         float target = Math.min(generationProgress, animationProgress);
         smoothedProgress += (target - smoothedProgress) * 0.25F;
-        if (Math.abs(target - smoothedProgress) < 0.001F) smoothedProgress = target;
+        if (target >= 1.0F || Math.abs(target - smoothedProgress) < 0.001F) smoothedProgress = target;
         if (ticksSinceBlockUpdate < Integer.MAX_VALUE) ticksSinceBlockUpdate++;
         if (portalCountdownActive && portalCountdownRemainingTicks > 0) portalCountdownRemainingTicks--;
     }
@@ -225,7 +213,7 @@ public final class ClientManifestation {
     public ResourceLocation dungeonId() { return dungeonId; }
     public ManifestationState state() { return state; }
     public float progress() { return smoothedProgress; }
-    /** Raw client animation clock, intentionally independent of generation progress. */
+    /** Server animation clock, capped by generation readiness before synchronization. */
     public float animationProgress() { return Math.max(0.0F, Math.min(1.0F, animationProgress)); }
     public long stateChangedGameTime() { return stateChangedGameTime; }
     public int sizeX() { return sizeX; }
@@ -263,6 +251,7 @@ public final class ClientManifestation {
     int blockCount() { return byPosition.size(); }
     int visualRevision() { return visualRevision; }
     int ticksSinceBlockUpdate() { return ticksSinceBlockUpdate; }
+    boolean animatedReveal() { return animationMode != AnimationMode.NONE; }
     boolean generationComplete() { return generationProgress >= 0.9999F; }
     List<ClientVisualBlock> snapshotBlocks() { return List.copyOf(byPosition.values()); }
     public int visualSizeX() { return hasVisualBounds() ? visualMaxX - visualMinX + 1 : sizeX; }

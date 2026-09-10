@@ -78,7 +78,7 @@ public final class DungeonMiniatureRenderer {
             RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         }
         try {
-            HologramMeshCache.render(value, pose, progress);
+            HologramMeshCache.render(value, pose, progress, hologramTint);
         } finally {
             RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         }

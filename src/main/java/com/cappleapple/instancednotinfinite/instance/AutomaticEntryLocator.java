@@ -29,6 +29,18 @@ final class AutomaticEntryLocator {
         return targets.isEmpty() ? Optional.empty() : Optional.of(targets.getFirst().approach());
     }
 
+    /** The city has open cave floor around its bounds, rather than an authored tunnel into solid rock. */
+    static Optional<Approach> locateCavern(ServerLevel level, GenerationPlan plan) {
+        return openBoundaryTargets(level, plan).stream().map(ApproachTarget::approach)
+            .filter(approach -> {
+                int length = approach.access().distManhattan(approach.exterior());
+                for (int step = 0; step <= length; step++) {
+                    if (!isOpenStandingSpace(level, approach.access().relative(approach.outward(), step))) return false;
+                }
+                return true;
+            }).findFirst();
+    }
+
     static Approach surfaceFallback(GenerationPlan plan) {
         return fallbackTargets(plan).getFirst().approach();
     }

@@ -296,6 +296,7 @@ public final class DungeonInstance {
         tag.putInt("TerrainSurfaceY", plan.terrainSurfaceY());
         if (plan.oceanFloorY() != null) tag.putInt("OceanFloorY", plan.oceanFloorY());
         tag.putBoolean("FloatingVoid", plan.floatingVoid());
+        tag.putBoolean("AncientCityCavern", plan.ancientCityCavern());
         tag.putLong("Entry", plan.entryPosition().asLong());
         tag.putFloat("EntryYaw", plan.entryYaw());
         return tag;
@@ -314,7 +315,7 @@ public final class DungeonInstance {
             BlockPos.of(tag.getLong("Entry")),
             tag.contains("EntryYaw", Tag.TAG_FLOAT) ? tag.getFloat("EntryYaw") : definition.entry().yaw(),
             tag.contains("OceanFloorY", Tag.TAG_INT) ? tag.getInt("OceanFloorY") : null,
-            tag.getBoolean("FloatingVoid"));
+            tag.getBoolean("FloatingVoid"), tag.getBoolean("AncientCityCavern"));
     }
 
     private static void putBox(CompoundTag tag, String key, BoundingBox box) {

@@ -29,10 +29,8 @@ final class HologramMeshPlanner {
         return Math.min(bucketCount - 1, Math.max(0, (int)Math.floor(score * bucketCount)));
     }
 
-    static int visibleBucketCount(float progress, int bucketCount) {
-        if (bucketCount < 1) throw new IllegalArgumentException("bucketCount must be positive");
-        if (progress < 0.0F) return 0;
-        if (progress >= 1.0F) return bucketCount;
-        return Math.min(bucketCount, (int)Math.floor(progress * bucketCount) + 1);
+    static int bucket(double score, double minimum, double maximum, int bucketCount) {
+        double normalized = maximum <= minimum ? 0.0 : (score - minimum) / (maximum - minimum);
+        return bucket(normalized, bucketCount);
     }
 }

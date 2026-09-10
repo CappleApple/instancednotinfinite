@@ -41,11 +41,10 @@ class HologramMeshPlannerTest {
         assertEquals(0, HologramMeshPlanner.bucket(0.0, 64));
         assertEquals(32, HologramMeshPlanner.bucket(0.5, 64));
         assertEquals(63, HologramMeshPlanner.bucket(1.0, 64));
-        assertEquals(0, HologramMeshPlanner.visibleBucketCount(-0.001F, 64));
-        assertEquals(1, HologramMeshPlanner.visibleBucketCount(0.0F, 64));
-        assertEquals(1, HologramMeshPlanner.visibleBucketCount(0.001F, 64));
-        assertEquals(33, HologramMeshPlanner.visibleBucketCount(0.5F, 64));
-        assertEquals(64, HologramMeshPlanner.visibleBucketCount(1.0F, 64));
+        assertEquals(0, HologramMeshPlanner.bucket(0.2, 0.2, 0.4, 64));
+        assertEquals(32, HologramMeshPlanner.bucket(0.375, 0.25, 0.5, 64));
+        assertEquals(63, HologramMeshPlanner.bucket(0.4, 0.2, 0.4, 64));
+        assertEquals(0, HologramMeshPlanner.bucket(0.5, 0.5, 0.5, 64));
     }
 
     private static int faces(Point position, Set<Point> occupied) {

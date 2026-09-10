@@ -16,11 +16,20 @@ public record GenerationPlan(
     BlockPos entryPosition,
     float entryYaw,
     Integer oceanFloorY,
-    boolean floatingVoid
+    boolean floatingVoid,
+    boolean ancientCityCavern
 ) {
     public static final int ANCHOR_Y = 128;
     public static final int MIN_TERRAIN_Y = -63;
     public static final int MAX_TERRAIN_Y = 319;
+
+    /** Older saved instances retain their original terrain model. */
+    public GenerationPlan(long seed, DungeonDefinition definition, BoundingBox structureBounds,
+        BoundingBox guaranteedBounds, BoundingBox envelopeBounds, BlockPos structureOrigin,
+        int terrainSurfaceY, BlockPos entryPosition, float entryYaw, Integer oceanFloorY, boolean floatingVoid) {
+        this(seed, definition, structureBounds, guaranteedBounds, envelopeBounds, structureOrigin,
+            terrainSurfaceY, entryPosition, entryYaw, oceanFloorY, floatingVoid, false);
+    }
 
     /** Older saved instances retain their original terrain model. */
     public GenerationPlan(long seed, DungeonDefinition definition, BoundingBox structureBounds,
@@ -62,8 +71,8 @@ public record GenerationPlan(
 
     public static GenerationPlan fromBounds(long seed, DungeonDefinition definition, BoundingBox structure,
         BlockPos origin, boolean automaticEntry, int terrainSurfaceY, Integer oceanFloorY) {
-        int horizontal = definition.terrain().horizontalPadding();
-        int vertical = definition.terrain().verticalPadding();
+        int horizontal = horizontalPadding(definition);
+        int vertical = verticalPadding(definition);
         int horizontalFalloff = falloffForPadding(horizontal, 12, 32);
         int verticalFalloff = falloffForPadding(vertical, 8, 24);
         int requiredMinY = structure.minY() - vertical - verticalFalloff;
@@ -109,7 +118,20 @@ public record GenerationPlan(
             : origin.offset(definition.entry().x(), definition.entry().y(), definition.entry().z());
         return new GenerationPlan(
             seed, definition, structure, guaranteed, envelope, origin.immutable(), terrainSurfaceY, entry.immutable(),
-            definition.entry().yaw(), oceanFloorY, definition.environment() == EnvironmentType.FLOATING_ISLAND);
+            definition.entry().yaw(), oceanFloorY, definition.environment() == EnvironmentType.FLOATING_ISLAND,
+            AncientCityTerrainStrategy.appliesTo(definition));
+    }
+
+    public static int horizontalPadding(DungeonDefinition definition) {
+        return AncientCityTerrainStrategy.appliesTo(definition)
+            ? Math.max(AncientCityTerrainStrategy.MINIMUM_HORIZONTAL_PADDING, definition.terrain().horizontalPadding())
+            : definition.terrain().horizontalPadding();
+    }
+
+    public static int verticalPadding(DungeonDefinition definition) {
+        return AncientCityTerrainStrategy.appliesTo(definition)
+            ? Math.max(AncientCityTerrainStrategy.MINIMUM_VERTICAL_PADDING, definition.terrain().verticalPadding())
+            : definition.terrain().verticalPadding();
     }
 
     public static boolean usesSurfaceApproach(EnvironmentType environment) {

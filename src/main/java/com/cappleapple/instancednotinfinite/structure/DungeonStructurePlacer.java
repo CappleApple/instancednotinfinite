@@ -204,6 +204,10 @@ public final class DungeonStructurePlacer {
             seatedSurfaceY = TerrainSurfaceSeating.seatToFoundation(
                 definition.definition().environment(), seatingReferenceY, translatedSurfaceY);
         }
+        if (com.cappleapple.instancednotinfinite.terrain.AncientCityTerrainStrategy.appliesTo(definition.definition())) {
+            // The broad authored foundation locates the city floor, not the beard-box expansion or cave roof.
+            seatedSurfaceY = foundation.map(profile -> profile.foundation().baseY()).orElse(pieceBounds.minY()) - 1;
+        }
         if (seatedSurfaceY != translatedSurfaceY) {
             String foundationDescription = foundation
                 .map(profile -> profile.foundation().baseY() + ".." + profile.foundation().topY()
@@ -269,7 +273,7 @@ public final class DungeonStructurePlacer {
         long seed
     ) throws PlacementException {
         int horizontalRoom = definition.definition().terrain().maximumRadius()
-            - definition.definition().terrain().horizontalPadding() - 16;
+            - GenerationPlan.horizontalPadding(definition.definition()) - 16;
         int searchRadius = Math.max(0, Math.min(8, horizontalRoom / 16));
         int attempts = 0;
         for (int radius = 0; radius <= searchRadius; radius++) {
@@ -302,20 +306,22 @@ public final class DungeonStructurePlacer {
 
     private static int minimumStructureY(StructurePreparationContext level, ResolvedDungeonDefinition definition) {
         if (definition.definition().environment()
-            != com.cappleapple.instancednotinfinite.definition.EnvironmentType.CUSTOM) {
+            != com.cappleapple.instancednotinfinite.definition.EnvironmentType.CUSTOM
+            && !com.cappleapple.instancednotinfinite.terrain.AncientCityTerrainStrategy.appliesTo(definition.definition())) {
             return Math.max(level.getMinBuildHeight(), GenerationPlan.MIN_TERRAIN_Y);
         }
-        int padding = definition.definition().terrain().verticalPadding();
+        int padding = GenerationPlan.verticalPadding(definition.definition());
         return Math.max(level.getMinBuildHeight() + 1, GenerationPlan.MIN_TERRAIN_Y)
             + padding + GenerationPlan.verticalFalloffForPadding(padding);
     }
 
     private static int maximumStructureY(StructurePreparationContext level, ResolvedDungeonDefinition definition) {
         if (definition.definition().environment()
-            != com.cappleapple.instancednotinfinite.definition.EnvironmentType.CUSTOM) {
+            != com.cappleapple.instancednotinfinite.definition.EnvironmentType.CUSTOM
+            && !com.cappleapple.instancednotinfinite.terrain.AncientCityTerrainStrategy.appliesTo(definition.definition())) {
             return Math.min(level.getMaxBuildHeight() - 1, GenerationPlan.MAX_TERRAIN_Y);
         }
-        int padding = definition.definition().terrain().verticalPadding();
+        int padding = GenerationPlan.verticalPadding(definition.definition());
         return Math.min(level.getMaxBuildHeight() - 1, GenerationPlan.MAX_TERRAIN_Y)
             - padding - GenerationPlan.verticalFalloffForPadding(padding);
     }
@@ -333,7 +339,7 @@ public final class DungeonStructurePlacer {
         if (size.getX() < 1 || size.getY() < 1 || size.getZ() < 1) {
             throw new PlacementException("Structure template " + definition.structureId() + " is empty");
         }
-        int padding = definition.definition().terrain().verticalPadding();
+        int padding = GenerationPlan.verticalPadding(definition.definition());
         int falloff = GenerationPlan.verticalFalloffForPadding(padding);
         int minimumY = GenerationPlan.MIN_TERRAIN_Y + padding + falloff;
         int maximumY = GenerationPlan.MAX_TERRAIN_Y - padding - falloff - size.getY() + 1;

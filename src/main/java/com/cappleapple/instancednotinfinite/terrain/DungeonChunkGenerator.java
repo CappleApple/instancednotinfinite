@@ -72,7 +72,7 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
             }
             this.terrainStrategy = CustomTerrainStrategies.require(customId);
         } else {
-            this.terrainStrategy = TerrainStrategyRegistry.forEnvironment(initialPlan.definition().environment());
+            this.terrainStrategy = TerrainStrategyRegistry.forPlan(initialPlan);
         }
     }
 
@@ -87,7 +87,7 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
 
     public synchronized void updatePlan(GenerationPlan updated) {
         this.palette = MaterialPalette.forDefinition(updated.definition(), this.biome);
-        if (!this.customTerrain) this.terrainStrategy = TerrainStrategyRegistry.forEnvironment(updated.definition().environment());
+        if (!this.customTerrain) this.terrainStrategy = TerrainStrategyRegistry.forPlan(updated);
         this.plan.set(updated);
     }
 
@@ -118,10 +118,6 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
         return result;
     }
 
-    private BlockState terrainBlock(GenerationPlan current, int x, int y, int z) {
-        return terrainBlock(current, this.palette, this.terrainStrategy, this.temporaryFloatingTerrain, x, y, z);
-    }
-
     private static BlockState terrainBlock(GenerationPlan current, MaterialPalette palette,
         TerrainEnvelopeStrategy strategy, boolean temporaryFloatingTerrain, int x, int y, int z) {
         if (current.floatingVoid()) {
@@ -130,6 +126,12 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
             return flatBlock(palette, y, current.terrainSurfaceY(), null);
         }
         return strategy.blockAt(current, palette, x, y, z);
+    }
+
+    private static java.util.function.IntFunction<BlockState> terrainColumn(GenerationPlan current, MaterialPalette palette,
+        TerrainEnvelopeStrategy strategy, boolean temporary, int x, int z) {
+        return current.floatingVoid() ? y -> terrainBlock(current, palette, strategy, temporary, x, y, z)
+            : strategy.column(current, palette, x, z);
     }
 
     private BlockState flatBlock(int y, int surface, Integer floor) {
@@ -215,8 +217,9 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
             int x = chunkMinX + localX;
             for (int localZ = 0; localZ < 16; localZ++) {
                 int z = chunkMinZ + localZ;
+                var column = terrainColumn(current, palette, strategy, temporary, x, z);
                 for (int y = minY; y <= maxY; y++) {
-                    BlockState state = terrainBlock(current, palette, strategy, temporary, x, y, z);
+                    BlockState state = column.apply(y);
                     if (!state.isAir()) {
                         chunk.setBlockState(mutable.set(localX, y, localZ), state, false);
                         ocean.update(localX, y, localZ, state);
@@ -240,8 +243,9 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
             return Math.max(level.getMinBuildHeight(), Math.min(level.getMaxBuildHeight(), top + 1));
         }
         GenerationPlan current = this.plan.get();
+        var column = terrainColumn(current, this.palette, this.terrainStrategy, this.temporaryFloatingTerrain, x, z);
         for (int y = Math.min(level.getMaxBuildHeight() - 1, current.envelopeBounds().maxY()); y >= level.getMinBuildHeight(); y--) {
-            BlockState state = terrainBlock(current, x, y, z);
+            BlockState state = column.apply(y);
             if (type.isOpaque().test(state)) return y + 1;
         }
         return level.getMinBuildHeight();
@@ -252,9 +256,10 @@ public final class DungeonChunkGenerator extends NoiseBasedChunkGenerator {
         BlockState[] states = new BlockState[level.getHeight()];
         GenerationPlan current = this.plan.get();
         PlacementSample sample = this.placementSample;
+        var column = terrainColumn(current, this.palette, this.terrainStrategy, this.temporaryFloatingTerrain, x, z);
         for (int index = 0; index < states.length; index++) {
             int y = level.getMinBuildHeight() + index;
-            states[index] = sample == null ? terrainBlock(current, x, y, z)
+            states[index] = sample == null ? column.apply(y)
                 : flatBlock(y, sample.surfaceY(), sample.oceanFloorY());
         }
         return new NoiseColumn(level.getMinBuildHeight(), states);

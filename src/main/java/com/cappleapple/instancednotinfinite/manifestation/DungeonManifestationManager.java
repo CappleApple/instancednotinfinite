@@ -265,7 +265,10 @@ public final class DungeonManifestationManager implements AutoCloseable {
                     data.changed();
                 }
                 job.snapshot().ifPresent(snapshot -> snapshots.put(value.id(), snapshot));
-                if (value.animationProgress() >= 1.0) {
+                // Completion and elapsed animation time own this transition. A weighted
+                // presentation fraction must never strand a ready instance below 1.0.
+                if (timed >= 1.0) {
+                    value.updateProgress(1.0, 1.0);
                     value.transition(ManifestationState.FINALIZING, now);
                     NeoForge.EVENT_BUS.post(new DungeonManifestationReadyEvent(value));
                     value.transition(ManifestationState.COLLAPSING, now);

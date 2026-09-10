@@ -7,6 +7,12 @@ import java.util.Map;
 public final class TerrainStrategyRegistry {
     private static final Map<EnvironmentType, TerrainEnvelopeStrategy> BUILT_INS = createBuiltIns();
 
+    private static final TerrainEnvelopeStrategy ANCIENT_CITY = new AncientCityTerrainStrategy();
+
+    public static TerrainEnvelopeStrategy forPlan(GenerationPlan plan) {
+        return plan.ancientCityCavern() ? ANCIENT_CITY : forEnvironment(plan.definition().environment());
+    }
+
     private TerrainStrategyRegistry() {
     }
 

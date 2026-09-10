@@ -92,11 +92,14 @@ public final class HologramMeshCache {
         return entry != null && entry.mesh != null && entry.builtRevision == value.visualRevision();
     }
 
-    public static boolean render(ClientManifestation value, PoseStack pose, float progress) {
+    public static boolean render(ClientManifestation value, PoseStack pose, float progress, boolean animate) {
         requestBuild(value);
         CacheEntry entry = ENTRIES.get(value.id());
         if (entry == null || entry.mesh == null) return false;
-        entry.mesh.render(pose, progress);
+        double revealed = entry.mesh.render(pose, progress,
+            animate ? entry.revealedScore : Double.NEGATIVE_INFINITY);
+        // Completed item/icon previews share this mesh but must not advance the world reveal.
+        if (animate) entry.revealedScore = Math.max(entry.revealedScore, revealed);
         return true;
     }
 
@@ -221,6 +224,7 @@ public final class HologramMeshCache {
     private static final class CacheEntry implements AutoCloseable {
         private ClientManifestation value;
         private CachedMesh mesh;
+        private double revealedScore = Double.NEGATIVE_INFINITY;
         private BuildJob job;
         private int builtRevision = -1;
         private int builtBlockCount;
@@ -243,7 +247,10 @@ public final class HologramMeshCache {
         private final List<ClientVisualBlock> blocks;
         private final Map<Long, ClientVisualBlock> byPosition;
         private final Map<Integer, MeshAccumulator> accumulators = new HashMap<>();
-        private final List<ClientVisualBlock> specialModels = new ArrayList<>();
+        private final List<SpecialModel> specialModels = new ArrayList<>();
+        private final HologramRevealPlan.Builder reveal;
+        private final double minimumScore;
+        private final double maximumScore;
         private final BlockRenderDispatcher blockRenderer = Minecraft.getInstance().getBlockRenderer();
         private final RandomSource random = RandomSource.create(42L);
         private final PoseStack blockPose = new PoseStack();
@@ -261,7 +268,18 @@ public final class HologramMeshCache {
             this.blocks = value.snapshotBlocks();
             this.sourceBlockCount = blocks.size();
             this.byPosition = new HashMap<>(Math.max(16, sourceBlockCount * 2));
-            for (ClientVisualBlock block : blocks) byPosition.put(block.position().asLong(), block);
+            this.reveal = new HologramRevealPlan.Builder(REVEAL_BUCKETS, value.animatedReveal());
+            double minimum = Double.POSITIVE_INFINITY;
+            double maximum = Double.NEGATIVE_INFINITY;
+            for (ClientVisualBlock block : blocks) {
+                byPosition.put(block.position().asLong(), block);
+                if (block.layer() == VisualLayer.STRUCTURE && !block.state().isAir()) {
+                    minimum = Math.min(minimum, block.score());
+                    maximum = Math.max(maximum, block.score());
+                }
+            }
+            this.minimumScore = minimum;
+            this.maximumScore = maximum;
         }
 
         private Optional<CachedMesh> advance() {
@@ -282,9 +300,11 @@ public final class HologramMeshCache {
             if (block.layer() != VisualLayer.STRUCTURE || block.state().isAir()) return;
             BlockState state = block.state();
             RenderShape shape = state.getRenderShape();
+            int bucket = HologramMeshPlanner.bucket(block.score(), minimumScore, maximumScore, REVEAL_BUCKETS);
             if (shape == RenderShape.ENTITYBLOCK_ANIMATED) {
                 if (specialModels.size() < MAX_SPECIAL_MODELS) {
-                    specialModels.add(block);
+                    specialModels.add(new SpecialModel(block, bucket));
+                    reveal.add(bucket, block.score());
                     retainedBlocks++;
                 }
                 return;
@@ -303,7 +323,6 @@ public final class HologramMeshCache {
                 float red = (color >> 16 & 0xFF) / 255.0F;
                 float green = (color >> 8 & 0xFF) / 255.0F;
                 float blue = (color & 0xFF) / 255.0F;
-                int bucket = HologramMeshPlanner.bucket(block.score(), REVEAL_BUCKETS);
                 blockPose.pushPose();
                 try {
                     blockPose.translate(block.position().getX(), block.position().getY(), block.position().getZ());
@@ -326,8 +345,10 @@ public final class HologramMeshCache {
                 failedModels++;
                 // A single malformed third-party model must not invalidate the whole preview.
             }
-            if (quads > before) retainedBlocks++;
-            else if (faceMask == 0) enclosedBlocks++;
+            if (quads > before) {
+                retainedBlocks++;
+                reveal.add(bucket, block.score());
+            } else if (faceMask == 0) enclosedBlocks++;
         }
 
         private boolean isFaceOccluded(BlockState source, BlockPos neighborPosition, Direction direction) {
@@ -391,7 +412,7 @@ public final class HologramMeshCache {
                 sourceBlockCount, retainedBlocks, enclosedBlocks, directionalFaces, quads,
                 nonEmptyBuckets, specialModels.size(), failedModels, activeBuildNanos, uploadNanos, gpuBytes);
             closed = true;
-            return new CachedMesh(buffers, List.copyOf(specialModels), stats);
+            return new CachedMesh(buffers, List.copyOf(specialModels), reveal.build(), stats);
         }
 
         @Override
@@ -416,17 +437,19 @@ public final class HologramMeshCache {
 
     private static final class CachedMesh implements AutoCloseable {
         private final VertexBuffer[] buckets;
-        private final List<ClientVisualBlock> specialModels;
+        private final List<SpecialModel> specialModels;
+        private final HologramRevealPlan reveal;
         private final MeshStats stats;
 
-        private CachedMesh(VertexBuffer[] buckets, List<ClientVisualBlock> specialModels, MeshStats stats) {
+        private CachedMesh(VertexBuffer[] buckets, List<SpecialModel> specialModels, HologramRevealPlan reveal, MeshStats stats) {
             this.buckets = buckets;
             this.specialModels = specialModels;
+            this.reveal = reveal;
             this.stats = stats;
         }
 
-        private void render(PoseStack pose, float progress) {
-            int visibleBuckets = HologramMeshPlanner.visibleBucketCount(progress, REVEAL_BUCKETS);
+        private double render(PoseStack pose, float progress, double previouslyRevealedScore) {
+            int visibleBuckets = reveal.visibleBucketCount(progress, previouslyRevealedScore);
             if (visibleBuckets > 0) {
                 DRAW_TYPE.setupRenderState();
                 ShaderInstance shader = Objects.requireNonNull(RenderSystem.getShader(), "hologram shader");
@@ -458,14 +481,16 @@ public final class HologramMeshCache {
                     DRAW_TYPE.clearRenderState();
                 }
             }
-            renderSpecialModels(pose, progress);
+            renderSpecialModels(pose, visibleBuckets);
+            return reveal.revealedScore(visibleBuckets);
         }
 
-        private void renderSpecialModels(PoseStack pose, float progress) {
+        private void renderSpecialModels(PoseStack pose, int visibleBuckets) {
             if (specialModels.isEmpty()) return;
             MultiBufferSource.BufferSource buffers = Minecraft.getInstance().renderBuffers().bufferSource();
-            for (ClientVisualBlock block : specialModels) {
-                if (block.score() > progress) continue;
+            for (SpecialModel special : specialModels) {
+                if (special.bucket() >= visibleBuckets) continue;
+                ClientVisualBlock block = special.block();
                 pose.pushPose();
                 pose.translate(block.position().getX(), block.position().getY(), block.position().getZ());
                 try {
@@ -482,6 +507,9 @@ public final class HologramMeshCache {
         public void close() {
             for (VertexBuffer buffer : buckets) if (buffer != null) buffer.close();
         }
+    }
+
+    private record SpecialModel(ClientVisualBlock block, int bucket) {
     }
 
     private record MeshStats(

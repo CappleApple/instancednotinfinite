@@ -1045,6 +1045,15 @@ public final class DungeonInstanceManager implements AutoCloseable {
             if (!isSafeEntryAndReturnPortal(level, feet, yaw)) {
                 throw new InstanceOperationException("Configured automatic approach did not create a safe player platform at " + feet);
             }
+        } else if (plan.ancientCityCavern()) {
+            AutomaticEntryLocator.Approach approach = AutomaticEntryLocator.locateCavern(level, plan)
+                .orElseThrow(() -> new InstanceOperationException("Ancient City cavern has no walkable approach to its floor"));
+            AutomaticApproachBuilder.BuiltApproach built = AutomaticApproachBuilder.build(level, plan, approach);
+            feet = built.spawn();
+            yaw = built.yaw();
+            if (!isSafeEntryAndReturnPortal(level, feet, yaw)) {
+                throw new InstanceOperationException("Ancient City cavern approach is not safe at " + feet);
+            }
         } else if (GenerationPlan.usesUndergroundApproach(plan.definition().environment())) {
             AutomaticApproachBuilder.Settings settings = AutomaticApproachBuilder.Settings.fromConfig();
             AutomaticEntryLocator.Approach approach = UndergroundEntryLocator.locate(
@@ -1078,7 +1087,7 @@ public final class DungeonInstanceManager implements AutoCloseable {
         }
         return new GenerationPlan(
             plan.seed(), plan.definition(), plan.structureBounds(), plan.guaranteedBounds(), plan.envelopeBounds(),
-            plan.structureOrigin(), plan.terrainSurfaceY(), feet.immutable(), yaw, plan.oceanFloorY(), plan.floatingVoid());
+            plan.structureOrigin(), plan.terrainSurfaceY(), feet.immutable(), yaw, plan.oceanFloorY(), plan.floatingVoid(), plan.ancientCityCavern());
     }
 
     private static boolean isSafeStandingPosition(ServerLevel level, BlockPos feet) {
