@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.9 — 2026-09-10
+
+### Changed
+
+- Natural mob spawning in dungeon instances is now restricted to the structure's saved X/Y/Z bounds, excluding surrounding terrain. Existing spawning settings and normal spawn rules still apply; spawners, authored structure mobs, commands, and spawn eggs are unaffected.
+
 ## 1.1.8 — 2026-09-09
 
 ### Fixed

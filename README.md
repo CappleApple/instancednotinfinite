@@ -245,7 +245,7 @@ Example:
 | `entry.yaw/pitch` | no | Player rotation on entry. |
 | `placement.mode` | no | `direct` or best-effort `natural`; defaults to `direct`. See limitations below. |
 | `decoration.mode` | no | `none`, `safe`, or `full`; defaults to `safe`. See limitations below. |
-| `allowNaturalMobSpawning` | no | Allows ordinary `NATURAL` and `CHUNK_GENERATION` mob spawning for this run, subject to the global switch; defaults to true. Spawners, structure mobs, commands, and spawn eggs are not suppressed. |
+| `allowNaturalMobSpawning` | no | Allows ordinary `NATURAL` and `CHUNK_GENERATION` mob spawning inside the structure's saved X/Y/Z bounds, subject to the global switch and normal spawning rules; defaults to true. Surrounding terrain outside that volume is excluded, including above and below it. Spawners, structure mobs, commands, and spawn eggs are not suppressed. |
 | `reentry` | no | `never`, `while_active`, `until_complete`, or `always_until_deleted`; defaults to `while_active`. |
 
 `NEVER` permits the assigned player's first entry only. `WHILE_ACTIVE` and `UNTIL_COMPLETE` permit assigned players to return while the record is `ACTIVE` or `VACANT`; the separate names leave room for future pre-completion states. `ALWAYS_UNTIL_DELETED` also permits re-entry during the short completed exit delay. No policy can enter a level once unloading begins.
@@ -328,7 +328,7 @@ NeoForge writes the server config as `instancednotinfinite-server.toml` under th
 - default horizontal and vertical padding
 - maximum terrain radius
 - maximum concurrent instances
-- global natural mob spawning switch
+- global natural mob spawning switch (restricted to the structure volume when enabled)
 - fallback return dimension
 - debug logging switch
 

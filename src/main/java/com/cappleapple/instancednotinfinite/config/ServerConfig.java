@@ -189,7 +189,10 @@ public final class ServerConfig {
         defaultVerticalPadding = builder.defineInRange("defaultVerticalPadding", 32, 0, 256);
         maximumTerrainRadius = builder.comment("Hard cap applied even when a definition requests a larger radius.")
             .defineInRange("maximumTerrainRadius", 256, 16, 1024);
-        allowNaturalMobSpawning = builder.define("allowNaturalMobSpawning", true);
+        allowNaturalMobSpawning = builder.comment(
+                "Allow natural mob spawning inside each instance's structure bounds; surrounding terrain is excluded.",
+                "Normal spawn rules still apply. Spawners, structure mobs, commands, and spawn eggs are unaffected.")
+            .define("allowNaturalMobSpawning", true);
         builder.pop();
 
         builder.push("approach");

@@ -7,6 +7,7 @@ import com.cappleapple.instancednotinfinite.instance.DungeonInstanceManager;
 import com.cappleapple.instancednotinfinite.manifestation.DungeonManifestationManager;
 import com.cappleapple.instancednotinfinite.network.ManifestationNetwork;
 import com.cappleapple.instancednotinfinite.recipe.PortalRecipeTierReloadListener;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.MobSpawnType;
 import net.neoforged.bus.api.IEventBus;
@@ -99,7 +100,8 @@ public final class ServerEvents {
             return;
         }
         DungeonInstanceManager.current().ifPresent(manager -> {
-            if (!manager.allowsNaturalMobSpawning(event.getLevel().getLevel())) {
+            if (!manager.allowsNaturalMobSpawning(event.getLevel().getLevel(),
+                BlockPos.containing(event.getX(), event.getY(), event.getZ()))) {
                 event.setResult(MobSpawnEvent.PositionCheck.Result.FAIL);
             }
         });

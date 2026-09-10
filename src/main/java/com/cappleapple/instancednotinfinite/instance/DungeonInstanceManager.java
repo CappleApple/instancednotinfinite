@@ -534,6 +534,14 @@ public final class DungeonInstanceManager implements AutoCloseable {
             .orElse(true);
     }
 
+    /** Uses persisted structure bounds, never terrain padding or a chunk-loading structure lookup. */
+    public boolean allowsNaturalMobSpawning(ServerLevel level, BlockPos position) {
+        return getByDimension(level.dimension().location())
+            .map(instance -> instance.definition().allowNaturalMobSpawning()
+                && instance.plan().map(plan -> plan.structureBounds().isInside(position)).orElse(false))
+            .orElse(true);
+    }
+
     public void tryActivateReturnPortal(ServerPlayer player) {
         if (player.isOnPortalCooldown()) return;
         getByDimension(player.level().dimension().location())
