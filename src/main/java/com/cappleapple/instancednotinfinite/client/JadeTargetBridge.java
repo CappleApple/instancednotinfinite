@@ -16,7 +16,7 @@ public final class JadeTargetBridge {
             current = null;
             return Optional.empty();
         }
-        current = PortalTooltipTarget.find(minecraft, minecraft.level.getGameTime()).orElse(null);
+        current = PortalTooltipTarget.find(minecraft, ClientAnimationTime.ticks()).orElse(null);
         return Optional.ofNullable(current);
     }
 

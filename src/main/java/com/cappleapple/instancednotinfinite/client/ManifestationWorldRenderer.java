@@ -17,7 +17,7 @@ public final class ManifestationWorldRenderer {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level == null) return;
         Vec3 camera = event.getCamera().getPosition();
-        float partial = event.getPartialTick().getGameTimeDeltaPartialTick(true);
+        double time = ClientAnimationTime.ticks();
         for (ClientManifestation value : ClientManifestationStore.values()) {
             if (!value.dimension().equals(minecraft.level.dimension().location())) continue;
             if (!com.cappleapple.instancednotinfinite.compat.SableCoordinates.available(minecraft.level, value.origin())) continue;
@@ -26,29 +26,24 @@ public final class ManifestationWorldRenderer {
             SableRenderCoordinates.translate(pose, minecraft.level, value.origin(),
                 Vec3.atBottomCenterOf(value.origin()).add(0, 1.5, 0), camera);
             if (value.state() == ManifestationState.PORTAL_OPEN) {
-                renderPortal(value, pose, event, minecraft.level.getGameTime() + partial, 1.0F, 0.0F);
+                renderPortal(value, pose, event, time, 1.0F, 0.0F);
             } else if (value.state() == ManifestationState.PORTAL_OPENING) {
-                float elapsed = Math.min(1.0F, Math.max(0.0F,
-                    (minecraft.level.getGameTime() + partial - value.stateChangedGameTime())
-                        / value.portalGrowthDurationTicks()));
+                float elapsed = value.phaseProgress(value.portalGrowthDurationTicks());
                 float inverse = 1.0F - elapsed;
                 float scale = 1.0F - inverse * inverse * inverse;
-                renderPortal(value, pose, event, minecraft.level.getGameTime() + partial,
+                renderPortal(value, pose, event, time,
                     Math.max(0.001F, scale), 0.0F);
             } else if (value.state() == ManifestationState.CLOSING) {
-                float elapsed = Math.min(1.0F, Math.max(0.0F,
-                    (minecraft.level.getGameTime() + partial - value.stateChangedGameTime())
-                        / value.portalCloseDurationTicks()));
-                renderPortal(value, pose, event, minecraft.level.getGameTime() + partial, 1.0F, elapsed);
+                float elapsed = value.phaseProgress(value.portalCloseDurationTicks());
+                renderPortal(value, pose, event, time, 1.0F, elapsed);
             } else if (value.state() == ManifestationState.COLLAPSING) {
-                float collapse = Math.min(1.0F, Math.max(0.0F,
-                    (minecraft.level.getGameTime() + partial - value.stateChangedGameTime()) / value.collapseDurationTicks()));
+                float collapse = value.phaseProgress(value.collapseDurationTicks());
                 float scale = (1.0F - collapse) * (1.0F - collapse);
                 DungeonMiniatureRenderer.renderWorld(value, pose, Math.max(0.001F, scale), collapse * 720.0F);
             } else if (!value.state().terminal()) {
-                float hover = (float)Math.sin((minecraft.level.getGameTime() + partial) * 0.04) * 0.08F;
+                float hover = (float)Math.sin(time * 0.04) * 0.08F;
                 pose.translate(0.0, hover, 0.0);
-                DungeonMiniatureRenderer.renderWorld(value, pose, 1.0F, (minecraft.level.getGameTime() + partial) * 0.35F);
+                DungeonMiniatureRenderer.renderWorld(value, pose, 1.0F, AnimationClock.rotationDegrees(time));
             }
             pose.popPose();
         }
@@ -63,7 +58,7 @@ public final class ManifestationWorldRenderer {
         float collapseProgress
     ) {
         MultiBufferSource.BufferSource buffers = Minecraft.getInstance().renderBuffers().bufferSource();
-            PortalGeometryRenderer.render(
+        PortalGeometryRenderer.render(
             pose, buffers, value.rotationDegrees(), value.portalWidth(), value.portalHeight(), value.portalDepth(),
             value.portalMinimumWidth(), value.portalMinimumHeight(), value.portalMinimumDepth(),
             value.portalInnerColor(), value.portalOuterColor(), growthScale, time,

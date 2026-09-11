@@ -31,6 +31,8 @@ public final class ClientManifestation {
     private float generationProgress;
     private float animationProgress;
     private float smoothedProgress;
+    private float visualLifetimeFraction = 1.0F;
+    private final AnimationPhaseClock phaseClock = new AnimationPhaseClock();
     private long stateChangedGameTime;
     private int sizeX;
     private int sizeY;
@@ -76,9 +78,13 @@ public final class ClientManifestation {
     private int ticksSinceBlockUpdate;
 
     ClientManifestation(ManifestationStartPayload payload) {
+        this(payload, payload.stateChangedGameTime());
+    }
+
+    ClientManifestation(ManifestationStartPayload payload, long observedGameTime) {
         this.id = payload.id();
-        update(payload);
-        this.smoothedProgress = payload.animationProgress();
+        update(payload, observedGameTime);
+        this.smoothedProgress = Math.min(payload.generationProgress(), payload.animationProgress());
     }
 
     private ClientManifestation(UUID id, ResourceLocation dungeonId, List<ClientVisualBlock> blocks) {
@@ -121,6 +127,11 @@ public final class ClientManifestation {
     }
 
     void update(ManifestationStartPayload payload) {
+        update(payload, payload.stateChangedGameTime());
+    }
+
+    void update(ManifestationStartPayload payload, long observedGameTime) {
+        phaseClock.sync(payload.state(), payload.stateChangedGameTime(), observedGameTime, ClientAnimationTime.ticks());
         this.dimension = payload.dimension();
         this.origin = payload.origin();
         this.rotationDegrees = payload.rotationDegrees();
@@ -186,6 +197,12 @@ public final class ClientManifestation {
     }
 
     void update(ManifestationProgressPayload payload) {
+        update(payload, payload.stateChangedGameTime());
+    }
+
+    void update(ManifestationProgressPayload payload, long observedGameTime) {
+        phaseClock.sync(payload.state(), payload.stateChangedGameTime(), observedGameTime, ClientAnimationTime.ticks());
+        boolean newCountdown = !portalCountdownActive || portalCountdownTotalTicks != payload.portalCountdownTotalTicks();
         this.state = payload.state();
         this.generationProgress = payload.generationProgress();
         this.animationProgress = payload.animationProgress();
@@ -195,12 +212,17 @@ public final class ClientManifestation {
         this.portalCountdownTotalTicks = payload.portalCountdownTotalTicks();
         this.portalCountdownRemainingTicks = payload.portalCountdownRemainingTicks();
         this.portalCountdownActive = payload.portalCountdownActive();
+        if (newCountdown) visualLifetimeFraction = countdownFraction();
+        if (Math.min(generationProgress, animationProgress) >= 1.0F) smoothedProgress = 1.0F;
+    }
+
+    void animate(double elapsedTicks) {
+        float target = Math.min(generationProgress, animationProgress);
+        smoothedProgress = target >= 1.0F ? 1.0F : AnimationClock.approach(smoothedProgress, target, elapsedTicks);
+        visualLifetimeFraction = AnimationClock.approach(visualLifetimeFraction, countdownFraction(), elapsedTicks);
     }
 
     void tick() {
-        float target = Math.min(generationProgress, animationProgress);
-        smoothedProgress += (target - smoothedProgress) * 0.25F;
-        if (target >= 1.0F || Math.abs(target - smoothedProgress) < 0.001F) smoothedProgress = target;
         if (ticksSinceBlockUpdate < Integer.MAX_VALUE) ticksSinceBlockUpdate++;
         if (portalCountdownActive && portalCountdownRemainingTicks > 0) portalCountdownRemainingTicks--;
     }
@@ -215,6 +237,7 @@ public final class ClientManifestation {
     public float progress() { return smoothedProgress; }
     /** Server animation clock, capped by generation readiness before synchronization. */
     public float animationProgress() { return Math.max(0.0F, Math.min(1.0F, animationProgress)); }
+    float phaseProgress(int durationTicks) { return phaseClock.progress(ClientAnimationTime.ticks(), durationTicks); }
     public long stateChangedGameTime() { return stateChangedGameTime; }
     public int sizeX() { return sizeX; }
     public int sizeY() { return sizeY; }
@@ -237,7 +260,8 @@ public final class ClientManifestation {
     public int portalOuterColor() { return portalOuterColor; }
     public int portalCountdownRemainingTicks() { return portalCountdownRemainingTicks; }
     public boolean portalCountdownActive() { return portalCountdownActive; }
-    public float portalLifetimeFraction() {
+    public float portalLifetimeFraction() { return portalCountdownActive ? visualLifetimeFraction : 1.0F; }
+    private float countdownFraction() {
         if (!portalCountdownActive) return 1.0F;
         if (portalCountdownTotalTicks <= 0) return 0.0F;
         return Math.max(0.0F, Math.min(1.0F, portalCountdownRemainingTicks / (float)portalCountdownTotalTicks));

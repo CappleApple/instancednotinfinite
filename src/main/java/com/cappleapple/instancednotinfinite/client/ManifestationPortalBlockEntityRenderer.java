@@ -24,7 +24,7 @@ public final class ManifestationPortalBlockEntityRenderer implements BlockEntity
         if (portal.endpoint() != ManifestationPortalBlockEntity.Endpoint.RETURN) return;
         pose.pushPose();
         pose.translate(0.5, 1.5, 0.5);
-        double time = (portal.getLevel() == null ? 0.0 : portal.getLevel().getGameTime()) + partialTick;
+        double time = ClientAnimationTime.ticks();
         PortalGeometryRenderer.render(
             pose, buffers, portal.rotationDegrees(), portal.portalWidth(), portal.portalHeight(), portal.portalDepth(),
             portal.portalMinimumWidth(), portal.portalMinimumHeight(), portal.portalMinimumDepth(),

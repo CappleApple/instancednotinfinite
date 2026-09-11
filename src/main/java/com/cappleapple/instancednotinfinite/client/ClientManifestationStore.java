@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
 
 public final class ClientManifestationStore {
@@ -18,9 +19,10 @@ public final class ClientManifestationStore {
     }
 
     static void start(ManifestationStartPayload payload) {
+        long observedGameTime = observedGameTime(payload.stateChangedGameTime());
         VALUES.compute(payload.id(), (id, existing) -> {
-            if (existing == null) return new ClientManifestation(payload);
-            existing.update(payload);
+            if (existing == null) return new ClientManifestation(payload, observedGameTime);
+            existing.update(payload, observedGameTime);
             return existing;
         });
     }
@@ -37,7 +39,7 @@ public final class ClientManifestationStore {
     static void progress(ManifestationProgressPayload payload) {
         ClientManifestation value = VALUES.get(payload.id());
         if (value != null) {
-            value.update(payload);
+            value.update(payload, observedGameTime(payload.stateChangedGameTime()));
             DungeonIconCache.prime(value);
         }
     }
@@ -60,6 +62,15 @@ public final class ClientManifestationStore {
             .filter(value -> value.dungeonId().equals(dungeonId))
             .filter(value -> value.blockCount() > 0)
             .max(java.util.Comparator.comparingInt(ClientManifestation::blockCount));
+    }
+
+    private static long observedGameTime(long fallback) {
+        var level = Minecraft.getInstance().level;
+        return level == null ? fallback : level.getGameTime();
+    }
+
+    static void animate(double elapsedTicks) {
+        VALUES.values().forEach(value -> value.animate(elapsedTicks));
     }
 
     static void tick() {

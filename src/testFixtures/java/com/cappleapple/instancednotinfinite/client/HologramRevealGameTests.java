@@ -31,7 +31,9 @@ public final class HologramRevealGameTests {
             new TestFunction("hologram_reveal", "instancednotinfinite.hologram_streamed_scores",
                 "instancednotinfinite_integration:empty", 100, 0L, true, HologramRevealGameTests::streamedScores),
             new TestFunction("hologram_reveal", "instancednotinfinite.hologram_completion_clock",
-                "instancednotinfinite_integration:empty", 100, 0L, true, HologramRevealGameTests::completionClock));
+                "instancednotinfinite_integration:empty", 100, 0L, true, HologramRevealGameTests::completionClock),
+            new TestFunction("hologram_reveal", "instancednotinfinite.hologram_phase_clock",
+                "instancednotinfinite_integration:empty", 100, 0L, true, HologramRevealGameTests::phaseClock));
     }
 
     private static void streamedScores(GameTestHelper helper) {
@@ -62,7 +64,8 @@ public final class HologramRevealGameTests {
     private static void completionClock(GameTestHelper helper) {
         ClientManifestation value = new ClientManifestation(start(AnimationMode.CHAOTIC));
         value.update(progress(value.id(), 0.5F, 1.0F, ManifestationState.MANIFESTING));
-        for (int tick = 0; tick < 100; tick++) value.tick();
+        for (int frame = 0; frame < 600; frame++) value.animate(1.0 / 6.0);
+        helper.assertTrue(value.progress() > 0.49F, "Frame updates did not advance the reveal");
         helper.assertTrue(value.progress() <= 0.5F, "Visual clock bypassed unfinished generation");
         value.update(progress(value.id(), 1.0F, 1.0F, ManifestationState.COLLAPSING));
         value.tick();
@@ -71,6 +74,33 @@ public final class HologramRevealGameTests {
         helper.assertTrue(value.animatedReveal(), "Animated mode lost its reveal");
         helper.assertFalse(new ClientManifestation(start(AnimationMode.NONE)).animatedReveal(), "NONE acquired an animation");
         helper.succeed();
+    }
+
+    private static void phaseClock(GameTestHelper helper) {
+        ClientAnimationTime.reset();
+        try {
+            ClientAnimationTime.advance(0L, false);
+            ClientManifestation value = new ClientManifestation(start(AnimationMode.CHAOTIC));
+            var opening = progress(value.id(), 1.0F, 1.0F, ManifestationState.PORTAL_OPENING);
+            value.update(opening, 0L);
+            ClientAnimationTime.advance(250_000_000L, false);
+            helper.assertValueEqual(value.phaseProgress(20), 0.25F, "Opening did not follow frame time");
+            value.update(opening, -20L);
+            ClientAnimationTime.advance(500_000_000L, false);
+            helper.assertValueEqual(value.phaseProgress(20), 0.5F, "Backward time correction restarted opening");
+            value.update(opening, 100L);
+            ClientAnimationTime.advance(750_000_000L, false);
+            helper.assertValueEqual(value.phaseProgress(20), 0.75F, "Forward time correction completed opening early");
+            ClientAnimationTime.advance(800_000_000L, true);
+            ClientAnimationTime.advance(60_000_000_000L, true);
+            ClientAnimationTime.advance(60_050_000_000L, false);
+            helper.assertValueEqual(value.phaseProgress(20), 0.75F, "Paused phase caught up on resume");
+            helper.assertValueEqual(value.state(), ManifestationState.PORTAL_OPENING,
+                "Local visual time must not activate a portal");
+            helper.succeed();
+        } finally {
+            ClientAnimationTime.reset();
+        }
     }
 
     private static ManifestationProgressPayload progress(UUID id, float generation, float animation, ManifestationState state) {

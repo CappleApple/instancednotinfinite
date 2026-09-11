@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.10 — 2026-09-11
+
+### Fixed
+
+- Hologram rotation, portal effects, and opening/closing animations now use a shared client frame clock so server world-time corrections cannot make them jump or rewind, including at healthy server TPS.
+- Preserve smooth portal fragment motion and miniature rotation during long sessions, and update reveal smoothing every frame while retaining server-controlled generation readiness.
+
 ## 1.1.9 — 2026-09-10
 
 ### Changed

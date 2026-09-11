@@ -7,6 +7,10 @@ final class PortalDitherMath {
     private PortalDitherMath() {
     }
 
+    static float cycleFraction(double clock) {
+        return (float)(clock - Math.floor(clock));
+    }
+
     static float portalSizeScale(float remainingFraction, float minimumScale) {
         float minimum = clamp(minimumScale);
         return minimum + (1.0F - minimum) * (float)Math.sqrt(clamp(remainingFraction));

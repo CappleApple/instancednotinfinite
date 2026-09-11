@@ -180,7 +180,7 @@ final class PortalGeometryRenderer {
             double clock = time * 0.055 + noise(index, 3);
             long cycle = (long)Math.floor(clock);
             int seed = (int)(cycle * 37L + index * 101L);
-            float age = fraction((float)clock);
+            float age = PortalDitherMath.cycleFraction(clock);
             float animationAge = PortalDitherMath.fragmentAnimationAge(age);
             float baseX;
             float baseY;
@@ -299,10 +299,6 @@ final class PortalGeometryRenderer {
     private static int withScaledAlpha(int argb, float scale) {
         int alpha = Math.max(0, Math.min(255, Math.round((argb >>> 24) * scale)));
         return alpha << 24 | argb & 0x00FF_FFFF;
-    }
-
-    private static float fraction(float value) {
-        return value - (float)Math.floor(value);
     }
 
     private static float noise(int value, int salt) {

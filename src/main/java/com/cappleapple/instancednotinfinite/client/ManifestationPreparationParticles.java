@@ -41,8 +41,8 @@ final class ManifestationPreparationParticles {
         double height = Math.max(value.maximumHeight(), value.portalHeight());
         double centerY = value.origin().getY() + height * 0.5;
         double radius = value.preparationParticleRadius();
-        long gameTime = level.getGameTime();
-        Random random = new Random(value.id().getMostSignificantBits() ^ value.id().getLeastSignificantBits() ^ gameTime);
+        double gameTime = ClientAnimationTime.ticks();
+        Random random = new Random(value.id().getMostSignificantBits() ^ value.id().getLeastSignificantBits() ^ (long)gameTime);
 
         for (int index = 0; index < value.preparationParticleRate(); index++) {
             double fraction = index / (double)Math.max(1, value.preparationParticleRate());
@@ -64,7 +64,7 @@ final class ManifestationPreparationParticles {
         double centerY,
         double centerZ,
         double radius,
-        long gameTime,
+        double gameTime,
         double fraction
     ) {
         double angle = gameTime * 0.16 + fraction * TAU;
@@ -82,7 +82,7 @@ final class ManifestationPreparationParticles {
         double centerZ,
         double radius,
         double height,
-        long gameTime,
+        double gameTime,
         double fraction
     ) {
         double phase = gameTime * 0.18 + fraction * TAU;

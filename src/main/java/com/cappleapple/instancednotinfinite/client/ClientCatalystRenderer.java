@@ -9,7 +9,6 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.Optional;
 import net.minecraft.client.Minecraft;
-import net.minecraft.Util;
 import net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
@@ -84,7 +83,7 @@ public final class ClientCatalystRenderer extends BlockEntityWithoutLevelRendere
             return;
         }
         members.forEach(DungeonIconCache::requestMiniature);
-        long elapsed = Util.getMillis();
+        long elapsed = ClientAnimationTime.millis();
         long intervalMillis = ServerConfig.INSTANCE.poolItemSwapIntervalSeconds.get() * 1_000L;
         PoolCatalystAnimation.ModelFrame frame = PoolCatalystAnimation.modelFrame(
             elapsed, members.size(), intervalMillis);
@@ -118,7 +117,7 @@ public final class ClientCatalystRenderer extends BlockEntityWithoutLevelRendere
         }
         if (previews.isEmpty()) previews = java.util.List.of(FALLBACK_PORTAL);
 
-        long elapsed = Util.getMillis();
+        long elapsed = ClientAnimationTime.millis();
         int index = 0;
         float scale = 1.0F;
         float rotation = 0.0F;
@@ -153,7 +152,7 @@ public final class ClientCatalystRenderer extends BlockEntityWithoutLevelRendere
         int overlay
     ) {
         var members = ClientDungeonCatalog.structurePoolMembers(poolId).stream().distinct().sorted().toList();
-        long elapsed = Util.getMillis();
+        long elapsed = ClientAnimationTime.millis();
         long swapIntervalMillis = ServerConfig.INSTANCE.poolItemSwapIntervalSeconds.get() * 1_000L;
         if (members.isEmpty()) {
             renderPortal(FALLBACK_PORTAL, pose, buffer, elapsed, 1.0F, 0.0F);

@@ -20,7 +20,7 @@ public final class PortalHudOverlay {
         if (JadeIntegration.active() || !ClientConfig.builtInPortalTooltipsEnabled()) return;
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level == null || minecraft.player == null || minecraft.screen != null || minecraft.options.hideGui) return;
-        double time = minecraft.level.getGameTime() + partialTick.getGameTimeDeltaPartialTick(true);
+        double time = ClientAnimationTime.ticks();
         PortalTooltipTarget target = PortalTooltipTarget.find(minecraft, time).orElse(null);
         if (target == null) return;
         if (target.kind() == PortalTooltipTarget.Kind.LOADING) {

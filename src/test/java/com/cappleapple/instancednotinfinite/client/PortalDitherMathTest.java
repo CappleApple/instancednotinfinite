@@ -7,6 +7,15 @@ import org.junit.jupiter.api.Test;
 
 class PortalDitherMathTest {
     @Test
+    void fragmentPhaseKeepsFramePrecisionAfterLongUptime() {
+        double clock = 1_000_000.25;
+        double frame = (20.0 / 120.0) * 0.055;
+        assertEquals(frame, PortalDitherMath.cycleFraction(clock + frame)
+            - PortalDitherMath.cycleFraction(clock), 0.000001);
+        assertEquals(0.999F, PortalDitherMath.cycleFraction(1_000_000.999), 0.000001F);
+    }
+
+    @Test
     void portalContractsOnlyToConfiguredMinimum() {
         assertEquals(1.0F, PortalDitherMath.portalSizeScale(1.0F, 0.25F));
         assertEquals(0.25F, PortalDitherMath.portalSizeScale(0.0F, 0.25F));

@@ -78,7 +78,7 @@ public record PortalTooltipTarget(
                 depth = value.visualSizeZ() * fit + LOADING_TARGET_PADDING * 2.0F;
                 float hover = (float)Math.sin(time * 0.04) * 0.08F;
                 centerY = value.origin().getY() + 1.5 + hover;
-                renderedRotation = -Math.round((float)(time * 0.35));
+                renderedRotation = -Math.round(AnimationClock.rotationDegrees(time));
             }
             var distance = SableRenderCoordinates.rayDistance(
                 minecraft.level, value.origin(), cameraPosition, new Vec3(look.x(), look.y(), look.z()),
