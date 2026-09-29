@@ -34,6 +34,8 @@ public final class ServerEvents {
         gameBus.addListener(ServerEvents::playerTick);
         gameBus.addListener(ServerEvents::playerSafetyTick);
         gameBus.addListener(ServerEvents::playerLogin);
+        gameBus.addListener(ServerEvents::playerChangedDimension);
+        gameBus.addListener(ServerEvents::playerRespawned);
         gameBus.addListener(ServerEvents::mobSpawnPositionCheck);
         gameBus.addListener(ServerEvents::serverStopping);
     }
@@ -92,6 +94,18 @@ public final class ServerEvents {
                 manager.recoverPlayer(player);
                 ManifestationNetwork.syncPlayer(manager, player);
             });
+        }
+    }
+
+    private static void playerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            com.cappleapple.instancednotinfinite.player.PlayerReturnManager.restoreAfterExit(player);
+        }
+    }
+
+    private static void playerRespawned(PlayerEvent.PlayerRespawnEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            com.cappleapple.instancednotinfinite.player.PlayerReturnManager.restoreAfterExit(player);
         }
     }
 

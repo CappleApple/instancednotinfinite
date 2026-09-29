@@ -91,7 +91,8 @@ public final class DefinitionParser {
             try {
                 return new DungeonDefinition(
                     id, format, structure, kind, weight, biomes, height, environment, customEnvironment,
-                    terrain, portal, entry, placement, decoration, naturalSpawning, reentry);
+                    terrain, portal, entry, placement, decoration, naturalSpawning, reentry,
+                    root.has("adventureMode") ? bool(root, "adventureMode", false) : null);
             } catch (IllegalArgumentException exception) {
                 throw field(id, inferField(exception.getMessage()), exception.getMessage(), exception);
             }

@@ -450,6 +450,9 @@ public final class DungeonInstanceManager implements AutoCloseable {
         player.teleportTo(
             level, entry.getX() + 0.5, entry.getY(), entry.getZ() + 0.5,
             plan.entryYaw(), instance.definition().entry().pitch());
+        if (player.serverLevel() == level && Boolean.TRUE.equals(instance.definition().adventureMode())) {
+            this.returns.applyAdventureMode(player);
+        }
         NeoForge.EVENT_BUS.post(new DungeonPlayerEnteredEvent(instance, player));
         InstancedNotInfinite.LOGGER.info("[Dungeon {}] Player {} entered", id.shortId(), player.getGameProfile().getName());
     }
@@ -1019,7 +1022,8 @@ public final class DungeonInstanceManager implements AutoCloseable {
         return new DungeonDefinition(
             source.id(), source.formatVersion(), source.structure(), source.structureKind(), source.weight(), source.biomes(),
             source.height(), source.environment(), source.customEnvironment(), terrain, source.portal(), source.entry(), source.placement(),
-            source.decoration(), source.allowNaturalMobSpawning() && ServerConfig.INSTANCE.allowNaturalMobSpawning.get(), source.reentry());
+            source.decoration(), source.allowNaturalMobSpawning() && ServerConfig.INSTANCE.allowNaturalMobSpawning.get(), source.reentry(),
+            source.resolveAdventureMode(ServerConfig.INSTANCE.adventureMode.get()));
     }
 
     private static GenerationPlan withSafeEntry(

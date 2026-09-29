@@ -40,6 +40,14 @@ public final class PlayerReturnSavedData extends SavedData {
         }
     }
 
+    public void captureGameMode(UUID playerId, net.minecraft.world.level.GameType mode) {
+        ReturnLocation location = this.returns.get(playerId);
+        if (location != null && location.previousGameMode().isEmpty()) {
+            this.returns.put(playerId, location.withPreviousGameMode(mode));
+            this.setDirty();
+        }
+    }
+
     private PlayerReturnSavedData() {
     }
 

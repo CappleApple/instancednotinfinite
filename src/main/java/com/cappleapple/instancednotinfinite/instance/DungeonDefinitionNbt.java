@@ -55,6 +55,7 @@ final class DungeonDefinitionNbt {
         tag.putString("Decoration", definition.decoration().name());
         tag.putBoolean("NaturalSpawning", definition.allowNaturalMobSpawning());
         tag.putString("Reentry", definition.reentry().name());
+        if (definition.adventureMode() != null) tag.putBoolean("AdventureMode", definition.adventureMode());
         return tag;
     }
 
@@ -86,7 +87,8 @@ final class DungeonDefinitionNbt {
             enumValue(PlacementMode.class, tag.getString("Placement"), PlacementMode.DIRECT),
             enumValue(DecorationMode.class, tag.getString("Decoration"), DecorationMode.SAFE),
             tag.getBoolean("NaturalSpawning"),
-            enumValue(ReentryPolicy.class, tag.getString("Reentry"), ReentryPolicy.WHILE_ACTIVE));
+            enumValue(ReentryPolicy.class, tag.getString("Reentry"), ReentryPolicy.WHILE_ACTIVE),
+            tag.contains("AdventureMode", Tag.TAG_BYTE) ? tag.getBoolean("AdventureMode") : null);
     }
 
     private static <E extends Enum<E>> E enumValue(Class<E> type, String name, E fallback) {

@@ -20,8 +20,26 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.GameType;
 
 public final class PlayerReturnManager {
+    public void applyAdventureMode(ServerPlayer player) {
+        PlayerReturnSavedData data = PlayerReturnSavedData.get(player.getServer());
+        if (data.get(player.getUUID()).isEmpty()) return;
+        data.captureGameMode(player.getUUID(), player.gameMode.getGameModeForPlayer());
+        player.setGameMode(GameType.ADVENTURE);
+    }
+
+    /** Dimension changes and respawns can leave an instance without using a return portal. */
+    public static void restoreAfterExit(ServerPlayer player) {
+        if (isInstanceDimension(player.level().dimension().location())) return;
+        PlayerReturnSavedData data = PlayerReturnSavedData.get(player.getServer());
+        data.get(player.getUUID()).ifPresent(location -> {
+            location.previousGameMode().ifPresent(player::setGameMode);
+            data.remove(player.getUUID());
+        });
+    }
+
     public void capture(ServerPlayer player, DungeonInstance instance) {
         SubLevelAccess subLevel = SableCompanion.INSTANCE.getTrackingOrVehicleSubLevel(player);
         Vec3 world = SableCoordinates.toWorld(player.level(), player.position());
@@ -72,7 +90,8 @@ public final class PlayerReturnManager {
         player.setDeltaMovement(Vec3.ZERO);
         player.teleportTo(destination.level(), destination.position().x, destination.position().y,
             destination.position().z, destination.yaw(), destination.pitch());
-        data.remove(player.getUUID());
+        if (player.serverLevel() != destination.level()) return false;
+        restoreAfterExit(player);
         InstancedNotInfinite.LOGGER.info("Returned player {} from dungeon instance {}", player.getGameProfile().getName(), location.instanceId().shortId());
         return true;
     }
@@ -98,6 +117,9 @@ public final class PlayerReturnManager {
         tag.put("Motion", motion);
         tag.putFloat("FallDistance", 0);
         tag.putInt("PortalCooldown", 100);
+        if (location != null) {
+            location.previousGameMode().ifPresent(mode -> tag.putInt("playerGameType", mode.getId()));
+        }
         tag.remove("RootVehicle");
         // Sable 2.0.5 restores this point inside Entity.load, before PlayerLoggedInEvent.
         tag.remove("LoginPoint");
@@ -155,7 +177,7 @@ public final class PlayerReturnManager {
             returnPlayer(player);
         } else {
             // The prior return may have completed just before a crash; normal-world placement wins.
-            data.remove(player.getUUID());
+            restoreAfterExit(player);
         }
     }
 

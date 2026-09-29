@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.11 — 2026-09-29
+
+### Added
+
+- Optional Adventure mode on dungeon entry, disabled by default, with a server setting and per-dungeon datapack override. Leaving restores the player's previous game mode, including portal and command exits, void returns, death outside the instance, forced deletion, and login recovery.
+
 ## 1.1.10 — 2026-09-11
 
 ### Fixed

@@ -1,0 +1,9 @@
+{
+  "formatVersion": 1,
+  "structure": "minecraft:igloo/top",
+  "structureKind": "template",
+  "biomes": ["minecraft:snowy_plains"],
+  "environment": {"type": "surface"},
+  "decoration": {"mode": "none"},
+  "adventureMode": false
+}

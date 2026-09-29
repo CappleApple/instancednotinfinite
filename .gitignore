@@ -28,3 +28,6 @@ run-gametest/
 run-recipe-validation/
 repo/
 **/src/generated/**/.cache/
+
+# Local architecture context
+/docs/CURRENT_STATE.md

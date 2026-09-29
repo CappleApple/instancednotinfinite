@@ -71,6 +71,7 @@ import net.minecraft.server.network.CommonListenerCookie;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -90,6 +91,89 @@ public final class DungeonLifecycleGameTests {
     private static final String TEST_TEMPLATE = "bastion/mobs/empty";
 
     private DungeonLifecycleGameTests() {
+    }
+
+    @GameTest(templateNamespace = "minecraft", template = TEST_TEMPLATE, timeoutTicks = 400)
+    public static void adventureModeRestoresEveryModeAndExternalExits(GameTestHelper helper) throws InstanceOperationException {
+        MinecraftServer server = helper.getLevel().getServer();
+        DungeonInstanceManager manager = DungeonInstanceManager.get(server);
+        ServerPlayer player = mockServerPlayer(server, helper.getLevel(), "ini-test-adventure");
+        DungeonInstance instance = manager.create(ResourceLocation.parse("instancednotinfinite:adventure_igloo"));
+        try {
+            for (GameType mode : GameType.values()) {
+                player.setGameMode(mode);
+                manager.enter(player, instance.id());
+                helper.assertValueEqual(player.gameMode.getGameModeForPlayer(), GameType.ADVENTURE, "Entry mode");
+                manager.enter(player, instance.id());
+                helper.assertTrue(manager.leave(player), "Leave failed");
+                helper.assertValueEqual(player.gameMode.getGameModeForPlayer(), mode, "Original mode was overwritten");
+                helper.assertTrue(com.cappleapple.instancednotinfinite.player.PlayerReturnSavedData.get(server)
+                    .get(player.getUUID()).isEmpty(), "Return record was not consumed");
+            }
+            player.setGameMode(GameType.CREATIVE);
+            manager.enter(player, instance.id());
+            player.teleportTo(helper.getLevel(), 0, 100, 0, 0, 0);
+            helper.assertValueEqual(player.gameMode.getGameModeForPlayer(), GameType.CREATIVE, "External teleport restoration");
+
+            player.setGameMode(GameType.SURVIVAL);
+            manager.enter(player, instance.id());
+            player.setHealth(0);
+            player = server.getPlayerList().respawn(player, false, net.minecraft.world.entity.Entity.RemovalReason.KILLED);
+            // The packet listener normally rebinds its player after PlayerList returns.
+            player.connection.player = player;
+            helper.assertValueEqual(player.gameMode.getGameModeForPlayer(), GameType.SURVIVAL, "Death restoration");
+
+            player.setGameMode(GameType.CREATIVE);
+            manager.enter(player, instance.id());
+            player.teleportTo(player.serverLevel(), 0, player.serverLevel().getMinBuildHeight() - 5, 0, 0, 0);
+            helper.assertTrue(manager.returnFallenPlayer(player), "Void return did not trigger");
+            helper.assertValueEqual(player.gameMode.getGameModeForPlayer(), GameType.CREATIVE, "Void restoration");
+
+            manager.enter(player, instance.id());
+            manager.delete(instance.id());
+            helper.assertValueEqual(player.gameMode.getGameModeForPlayer(), GameType.CREATIVE, "Forced deletion restoration");
+        } finally {
+            server.getPlayerList().remove(player);
+            manager.delete(instance.id());
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = "minecraft", template = TEST_TEMPLATE, timeoutTicks = 400)
+    public static void adventureConfigDefaultAndDatapackOptOut(GameTestHelper helper) throws InstanceOperationException {
+        MinecraftServer server = helper.getLevel().getServer();
+        DungeonInstanceManager manager = DungeonInstanceManager.get(server);
+        ServerPlayer player = mockServerPlayer(server, helper.getLevel(), "ini-test-mode-default");
+        boolean previous = ServerConfig.INSTANCE.adventureMode.get();
+        helper.assertFalse(ServerConfig.INSTANCE.adventureMode.getDefault(), "Adventure mode must default off");
+        try {
+            for (boolean enabled : new boolean[] {false, true}) {
+                ServerConfig.INSTANCE.adventureMode.set(enabled);
+                DungeonInstance inherited = manager.create(ResourceLocation.parse("instancednotinfinite:surface_igloo"));
+                DungeonInstance optedOut = manager.create(ResourceLocation.parse("instancednotinfinite:non_adventure_igloo"));
+                ServerConfig.INSTANCE.adventureMode.set(!enabled);
+                try {
+                    player.setGameMode(GameType.CREATIVE);
+                    manager.enter(player, inherited.id());
+                    helper.assertValueEqual(player.gameMode.getGameModeForPlayer(),
+                        enabled ? GameType.ADVENTURE : GameType.CREATIVE, "Instance must snapshot the default");
+                    helper.assertTrue(manager.leave(player), "Inherited leave failed");
+                    helper.assertValueEqual(player.gameMode.getGameModeForPlayer(), GameType.CREATIVE, "Inherited restore");
+                    manager.enter(player, optedOut.id());
+                    helper.assertValueEqual(player.gameMode.getGameModeForPlayer(), GameType.CREATIVE, "Datapack false must win");
+                    player.setGameMode(GameType.SPECTATOR);
+                    helper.assertTrue(manager.leave(player), "Opt-out leave failed");
+                    helper.assertValueEqual(player.gameMode.getGameModeForPlayer(), GameType.SPECTATOR, "Disabled mode must not restore");
+                } finally {
+                    manager.delete(inherited.id());
+                    manager.delete(optedOut.id());
+                }
+            }
+        } finally {
+            ServerConfig.INSTANCE.adventureMode.set(previous);
+            server.getPlayerList().remove(player);
+        }
+        helper.succeed();
     }
 
     @GameTest(templateNamespace = "minecraft", template = TEST_TEMPLATE)
@@ -940,11 +1024,12 @@ public final class DungeonLifecycleGameTests {
         MinecraftServer server = helper.getLevel().getServer();
         DungeonInstanceManager manager = DungeonInstanceManager.get(server);
         ServerPlayer originalPlayer = mockServerPlayer(server, helper.getLevel(), "ini-test-reconnect");
+        originalPlayer.setGameMode(GameType.CREATIVE);
         GameProfile profile = originalPlayer.getGameProfile();
         DungeonInstance instance;
         ServerPlayer reconnected = null;
         try {
-            instance = manager.create(ResourceLocation.fromNamespaceAndPath(InstancedNotInfinite.MOD_ID, "surface_igloo"));
+            instance = manager.create(ResourceLocation.fromNamespaceAndPath(InstancedNotInfinite.MOD_ID, "adventure_igloo"));
             manager.enter(originalPlayer, instance.id());
             helper.assertTrue(originalPlayer.level().dimension().location().equals(instance.dimensionId()),
                 "Player was not inside the instance before disconnect");
@@ -953,6 +1038,8 @@ public final class DungeonLifecycleGameTests {
             reconnected = reconnect(server, helper.getLevel(), profile);
             helper.assertTrue(reconnected.level() == helper.getLevel(),
                 "Login recovery did not return the player from the temporary dimension");
+            helper.assertValueEqual(reconnected.gameMode.getGameModeForPlayer(), GameType.CREATIVE,
+                "Login recovery did not restore the prior mode");
 
             manager.enter(reconnected, instance.id());
             helper.assertTrue(manager.leave(reconnected), "Recovered player could not re-enter and leave the active instance");

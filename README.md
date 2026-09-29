@@ -57,6 +57,19 @@ Advanced definitions are available for packs that need custom templates, entry b
 
 Surface, underground, cave, and floating structures are handled differently when choosing an entrance so players do not simply spawn in a wall or fall out of the dungeon. The generated instance is finite and everything outside its useful area remains void.
 
+## Adventure mode
+
+Adventure mode on dungeon entry is disabled by default. Enable it in the world's `serverconfig/instancednotinfinite-server.toml`:
+
+```toml
+[instances]
+adventureMode = true
+```
+
+An advanced definition at `data/<namespace>/instanced_dungeons/<path>.json` can set the top-level `"adventureMode": true` or `false` to override the server default. Omitting it inherits the default. Each instance keeps the value resolved when it was created.
+
+Enabled entry saves the player's current game mode and switches them to Adventure. Leaving restores that mode, including portal and command exits, void returns, teleports to ordinary dimensions, respawns outside the instance, cleanup, and login recovery. Repeated entry or travel between instances preserves the original mode until the player leaves instance dimensions. Operators and other mods can still change game mode inside; disabled dungeons leave it unchanged.
+
 ## Completion and cleanup
 
 An instance can be completed through the API, commands, or by throwing the configured completion offering into one of its portals. The default offering is blaze powder.

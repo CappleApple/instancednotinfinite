@@ -9,6 +9,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DefinitionParserTest {
     @Test
+    void adventureModeSupportsInheritanceAndExplicitOverrides() throws Exception {
+        var json = JsonParser.parseString("""
+            {"formatVersion":1,"structure":"minecraft:igloo","biomes":["minecraft:snowy_plains"],"environment":{"type":"surface"}}
+            """).getAsJsonObject();
+        var inherited = DefinitionParser.parse("example:igloo", json);
+        assertEquals(null, inherited.adventureMode());
+        assertEquals(false, inherited.resolveAdventureMode(false));
+        assertEquals(true, inherited.resolveAdventureMode(true));
+        for (boolean enabled : new boolean[] {false, true}) {
+            json.addProperty("adventureMode", enabled);
+            var definition = DefinitionParser.parse("example:igloo", json);
+            assertEquals(enabled, definition.resolveAdventureMode(!enabled));
+            assertEquals(enabled, definition.withEnvironment(EnvironmentType.CAVE).adventureMode());
+        }
+        json.addProperty("adventureMode", "true");
+        assertEquals("adventureMode", assertThrows(DefinitionException.class,
+            () -> DefinitionParser.parse("example:igloo", json)).field());
+        json.add("adventureMode", com.google.gson.JsonNull.INSTANCE);
+        assertThrows(DefinitionException.class, () -> DefinitionParser.parse("example:igloo", json));
+    }
+
+    @Test
     void parsesCompleteDefinitionAndWeightedBiomeRules() throws Exception {
         DungeonDefinition definition = DefinitionParser.parse("example:crypt", JsonParser.parseString("""
             {

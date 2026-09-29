@@ -18,12 +18,26 @@ public record DungeonDefinition(
     PlacementMode placement,
     DecorationMode decoration,
     boolean allowNaturalMobSpawning,
-    ReentryPolicy reentry
+    ReentryPolicy reentry,
+    Boolean adventureMode
 ) {
+    /** Omitted adventure mode inherits the server default when an instance is created. */
+    public DungeonDefinition(String id, int formatVersion, String structure, StructureKind structureKind,
+            int weight, List<BiomeRule> biomes, HeightContext height, EnvironmentType environment,
+            String customEnvironment, TerrainSettings terrain, PortalSettings portal, EntryPoint entry,
+            PlacementMode placement, DecorationMode decoration, boolean allowNaturalMobSpawning, ReentryPolicy reentry) {
+        this(id, formatVersion, structure, structureKind, weight, biomes, height, environment,
+            customEnvironment, terrain, portal, entry, placement, decoration, allowNaturalMobSpawning, reentry, null);
+    }
+
+    public boolean resolveAdventureMode(boolean serverDefault) {
+        return adventureMode == null ? serverDefault : adventureMode;
+    }
+
     public DungeonDefinition withEnvironment(EnvironmentType type) {
         return new DungeonDefinition(id, formatVersion, structure, structureKind, weight, biomes, height,
             type, type == EnvironmentType.CUSTOM ? customEnvironment : null, terrain, portal, entry,
-            placement, decoration, allowNaturalMobSpawning, reentry);
+            placement, decoration, allowNaturalMobSpawning, reentry, adventureMode);
     }
 
     public DungeonDefinition {

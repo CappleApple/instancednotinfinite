@@ -28,6 +28,7 @@ public final class ServerConfig {
     public final ModConfigSpec.IntValue approachPathClearanceHeight;
     public final ModConfigSpec.IntValue approachPlatformClearanceHeight;
     public final ModConfigSpec.BooleanValue allowNaturalMobSpawning;
+    public final ModConfigSpec.BooleanValue adventureMode;
     public final ModConfigSpec.BooleanValue debugLogging;
     public final ModConfigSpec.ConfigValue<String> fallbackReturnDimension;
     public final ModConfigSpec.ConfigValue<List<? extends String>> structures;
@@ -165,6 +166,10 @@ public final class ServerConfig {
         builder.pop();
 
         builder.push("instances");
+        adventureMode = builder.comment(
+                "Switch players to Adventure on dungeon entry and restore their previous game mode on exit.",
+                "Datapack adventureMode overrides this default. Resolved when an instance is created.")
+            .define("adventureMode", false);
         vacancyTimeoutSeconds = builder.comment(
                 "Seconds a never-entered instance remains open; 0 cleans it immediately and -1 keeps it open indefinitely.")
             .defineInRange("vacancyTimeoutSeconds", ProductionConfigDefaults.INSTANCE_OPEN_SECONDS,

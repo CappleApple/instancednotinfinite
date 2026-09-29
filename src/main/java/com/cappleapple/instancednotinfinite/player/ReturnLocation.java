@@ -6,6 +6,8 @@ import java.util.UUID;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.GameType;
+import net.minecraft.nbt.Tag;
 
 public record ReturnLocation(
     InstanceId instanceId,
@@ -15,8 +17,18 @@ public record ReturnLocation(
     double z,
     float yaw,
     float pitch,
-    Optional<SubLevelReturn> subLevel
+    Optional<SubLevelReturn> subLevel,
+    Optional<GameType> previousGameMode
 ) {
+    public ReturnLocation(InstanceId instanceId, ResourceLocation dimension,
+            double x, double y, double z, float yaw, float pitch, Optional<SubLevelReturn> subLevel) {
+        this(instanceId, dimension, x, y, z, yaw, pitch, subLevel, Optional.empty());
+    }
+
+    public ReturnLocation withPreviousGameMode(GameType mode) {
+        return new ReturnLocation(instanceId, dimension, x, y, z, yaw, pitch, subLevel, Optional.of(mode));
+    }
+
     public ReturnLocation(InstanceId instanceId, ResourceLocation dimension,
             double x, double y, double z, float yaw, float pitch) {
         this(instanceId, dimension, x, y, z, yaw, pitch, Optional.empty());
@@ -33,6 +45,7 @@ public record ReturnLocation(
         tag.putDouble("Z", this.z);
         tag.putFloat("Yaw", this.yaw);
         tag.putFloat("Pitch", this.pitch);
+        previousGameMode.ifPresent(mode -> tag.putString("PreviousGameMode", mode.getName()));
         subLevel.ifPresent(anchor -> {
             CompoundTag sub = new CompoundTag();
             sub.putUUID("Id", anchor.id());
@@ -57,6 +70,8 @@ public record ReturnLocation(
             tag.getFloat("Yaw"), tag.getFloat("Pitch"),
             sub.hasUUID("Id") ? Optional.of(new SubLevelReturn(sub.getUUID("Id"),
                 new Vec3(sub.getDouble("X"), sub.getDouble("Y"), sub.getDouble("Z")), sub.getFloat("Yaw")))
-                : Optional.empty());
+                : Optional.empty(),
+            tag.contains("PreviousGameMode", Tag.TAG_STRING)
+                ? Optional.ofNullable(GameType.byName(tag.getString("PreviousGameMode"), null)) : Optional.empty());
     }
 }
